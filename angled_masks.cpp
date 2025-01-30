@@ -173,7 +173,8 @@ void write_vertical_lines(const polygon_2d& poly, std::vector<std::vector<linest
     //std::cout << "min_y:\t" << min_y << std::endl;
     //std::cout << "max_y:\t" << max_y << std::endl;
 
-    for(int i = 1; i < (max_x - min_x)/0.1; i++){
+    //for(int i = 1; i < (max_x - min_x)/0.1; i++){
+    for(int i = 161; i < 178; i++){
         std::vector<linestring_2d> tmp_sweepline;
         linestring_2d sweepline;
         sweepline.push_back(make<point_2d>(min_x + i * sweepline_step, min_y));
@@ -181,9 +182,12 @@ void write_vertical_lines(const polygon_2d& poly, std::vector<std::vector<linest
 
         linestring_2d inter;
         intersection(poly, sweepline, inter);
-        //std::cout << inter.size() << std::endl;
+        //std::cout << std::endl;
+        //std::cout << "[" << i << "]:\t" << inter.size() << std::endl;
         if(inter.size() % 2 == 0){
             for(int j = 0; j < inter.size()/2; j++){
+                //std::cout << '\t' << dsv(make<point_2d>((inter[2*j].x() + inter[2*j+1].x())/2, (inter[2*j].y() + inter[2*j+1].y())/2)) << std::endl;
+                //std::cout << '\t' << within(make<point_2d>((inter[2*j].x() + inter[2*j+1].x())/2, (inter[2*j].y() + inter[2*j+1].y())/2), poly) << std::endl;
                 if(within(make<point_2d>((inter[2*j].x() + inter[2*j+1].x())/2, (inter[2*j].y() + inter[2*j+1].y())/2), poly)){
                     linestring_2d tmp;
                     tmp.push_back(inter[2*j]);
@@ -205,13 +209,22 @@ int main(void){
     point_2d cent;
     centroid(polygon, cent);
 
-    std::vector<polygon_2d> turned_polys;
-    for(int i = 0; i < angle_tot / angle_step; i++){
+    point_2d pt(2, 1);
+    point_2d trasl(1, 1);
+
+    std::cout << dsv(rotate_point(pt, deg2rad(90), trasl)) << std::endl;
+
+    /*std::vector<polygon_2d> turned_polys;
+    //for(int i = 0; i < angle_tot / angle_step; i++){
+    int i = 17;{
         std::vector<std::vector<linestring_2d>> sweeplines;
         rotate_poly(turned_polys, polygon, deg2rad(angle_step * i), cent);
-        write_vertical_lines(turned_polys[i], sweeplines);
-        visualize_poly(turned_polys[i], i, sweeplines);
-    }
+        for(int i = 0; i < exterior_ring(turned_polys[0]).size(); i++){
+            std::cout << "[" << i << "]:\t" << dsv(exterior_ring(turned_polys[0])[i]) << std::endl;
+        }
+        //write_vertical_lines(turned_polys[0], sweeplines);
+        //visualize_poly(turned_polys[0], i, sweeplines);
+    }*/
 
     //std::cout << turned_polys.size() << std::endl;
 
