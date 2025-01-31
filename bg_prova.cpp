@@ -82,7 +82,7 @@ const bool flag_print_file = false;
 const bool flag_save_lenmask = false;
 const bool flag_save_anglemask = false;
 const bool flag_save_rects = false;
-const std::string n_per = "1";
+const std::string n_per = "4";
 const std::string strng_sweep_angle = "0";
 const std::string strng_angle_step = "0";
 //const std::string strng_tol = "10°";
@@ -91,7 +91,7 @@ const double angle_step = 0;
 //const double tol = 10;
 const double window_factor = 0.04;
 
-const int scale_img = 35;
+const int scale_img = 15;
 int N = 0;
 
 const double dist_tol = 0.5;
@@ -602,7 +602,7 @@ void visualize_childpolys(const polygon_2d& polygon, const std::vector<polygon_2
     point_2d bbox_center((max_x + min_x)/2, (max_y + min_y)/2);
     double bbox_dims[] = {(max_x - min_x), (max_y - min_y)};
 
-    const int img_scalefactor = (int)std::max(max_x - min_x, max_y - min_y)*100 > 1000 ? scale_img : 100;
+    const int img_scalefactor = (int)std::max(max_x - min_x, max_y - min_y)*100 > 1000 ? scale_img : 80;
 
     cv::Mat gray_image((int)(1.2 * img_scalefactor * bbox_dims[1]), (int)(1.2 * img_scalefactor * bbox_dims[0]), CV_8UC1, cv::Scalar(0));
 
@@ -630,29 +630,65 @@ void visualize_childpolys(const polygon_2d& polygon, const std::vector<polygon_2
 
     std::string strng_childpolys_file = "SDFchildpolys/per_" + n_per + "_gen0.jpg";
     //cv::imwrite(strng_childpolys_file, gray_image);
-    cv::imshow("New poly (?)", gray_image);
+    std::string strng_name = "Child polys gen #" + std::to_string(N+1);
+    cv::imshow(strng_name, gray_image);
+    /*for(int i = 0; i < cut_polys.size(); i++){
+        std::string strng_name = "Child poly #" + std::to_string(i);
+        cv::imshow(strng_name, gray_image);
+    }*/
 }
 
-int get_coupled_polylines(const std::vector<std::vector<int>>& coupled_indexs, const int& j){
-    for(int k = 0; k < coupled_indexs.size(); k++){
-        if(coupled_indexs[k].front() == j){
-            return coupled_indexs[k].back();
+int get_paired_polylines(const std::vector<std::vector<int>>& paired_indexs, const int& j){
+    for(int k = 0; k < paired_indexs.size(); k++){
+        if(paired_indexs[k].front() == j){
+            return paired_indexs[k].back();
         }
-        else if(coupled_indexs[k].back() == j){
-            return coupled_indexs[k].front();
+        else if(paired_indexs[k].back() == j){
+            return paired_indexs[k].front();
         }
     }
 }
 
-bool checkif_polylineiscoupled(const std::vector<std::vector<int>>& coupled_indexs, const int& j){
+bool checkif_polylineispaired(const std::vector<std::vector<int>>& paired_indexs, const int& j){
 
-    for(int i = 0; i < coupled_indexs.size(); i++){
-        if(coupled_indexs[i].front() == j || coupled_indexs[i].back() == j){
+    for(int i = 0; i < paired_indexs.size(); i++){
+        if(paired_indexs[i].front() == j || paired_indexs[i].back() == j){
             return true;
         }
     }
 
     return false;
+
+}
+
+bool checkif_pairisnotused(const std::vector<std::vector<int>>& paired_indexs, const int& j, const std::vector<std::vector<int>>& used_pair){
+
+    if(used_pair.empty()) return true;
+
+    for(int k = 0; k < used_pair.size(); k++)
+        for(int i = 0; i < paired_indexs.size(); i++){
+            if(used_pair[k].front() == paired_indexs[i].front() && used_pair[k].back() == paired_indexs[i].back()){
+                continue;
+            }
+            else if(used_pair[k].front() == paired_indexs[i].front() || used_pair[k].back() == paired_indexs[i].front() || used_pair[k].front() == paired_indexs[i].back() || used_pair[k].back() == paired_indexs[i].back()){
+                return false;
+            }
+        }
+
+    return true;
+}
+
+void distinct_pairs(std::vector<std::vector<int>>& paired_indexs){
+
+    if(paired_indexs.size() == 1) return;
+
+    for(int j = 0; j < paired_indexs.size(); j++)
+        for(int i = j + 1; i < paired_indexs.size(); i++){
+            if(paired_indexs[j].front() == paired_indexs[i].front() || paired_indexs[j].back() == paired_indexs[i].front() || paired_indexs[j].front() == paired_indexs[i].back() || paired_indexs[j].back() == paired_indexs[i].back()){
+                paired_indexs.erase(paired_indexs.begin() + i + j);
+                i--;
+            }
+        }
 
 }
 
@@ -686,47 +722,18 @@ void slicing_polys(const polygon_2d& polygon, std::vector<double>& normalized_SD
     const int n_values = 1;
 
     for(int i = 0; i < normalized_SDF.size(); i++){
-        //normalized_SDF[i] = (normalized_SDF[i] - minSDF)/(maxSDF - minSDF);
         normalized_SDF[i] = std::log((normalized_SDF[i] - minSDF)/(maxSDF - minSDF) * alpha + 1) / std::log(alpha + 1);
         normalized_SDF[i] = std::round(normalized_SDF[i] * n_values) / (double)n_values;
+        //if(N == 2)  std::cout << "NormSDF[" << i << "]:\t" << normalized_SDF[i] << std::endl;
     }
-
-    /*std::vector<int> hist_SDF(n_values + 1, 0);
-
-    std::cout << std::endl;
-    for(int i = 0; i <= n_values; i++){
-        for(int j = 0; j < normalized_SDF.size(); j++){
-            if(normalized_SDF[j] * n_values == i){
-                hist_SDF[i]++;
-            }
-        }
-        std::cout << "[" << (double)i / n_values << "]:\t" << hist_SDF[i] << std::endl;
-    }*/
 
     moving_average(normalized_SDF, n_values);
 
-    /*std::vector<int> hist_SDF_new(n_values + 1, 0);
-
-    std::cout << std::endl;
-    for(int i = 0; i <= n_values; i++){
-        for(int j = 0; j < normalized_SDF.size(); j++){
-            if(normalized_SDF[j] * n_values == i){
-                hist_SDF_new[i]++;
-            }
-        }
-        std::cout << "[" << (double)i / n_values << "]:\t" << hist_SDF_new[i] << std::endl;
-    }*/
-
     std::vector<size_t> maxSDF_indexs;
 
-    //std::cout << std::endl;
     for(int i = 0; i < normalized_SDF.size(); i++){
-        if(normalized_SDF[i] != 1){
-            normalized_SDF[i] = -1;
-        }
-        else{
+        if(normalized_SDF[i] == 1){
             maxSDF_indexs.push_back(i);
-            //std::cout << "[" << i << "]:\t" << normalized_SDF[i] << std::endl;
         }
     }
 
@@ -765,7 +772,7 @@ void slicing_polys(const polygon_2d& polygon, std::vector<double>& normalized_SD
     //if(N == 1) return;
 
     std::vector<polygon_2d> cut_polys;
-    std::vector<std::vector<int>> coupled_indexs;
+    std::vector<std::vector<int>> paired_indexs;
     for(int i = 0; i < maxSDF_polylines.size(); i++){
     //int i = 0;{
         polygon_2d newtry_poly;
@@ -793,10 +800,10 @@ void slicing_polys(const polygon_2d& polygon, std::vector<double>& normalized_SD
                     if(relate(newtry_poly, inter.front(), mask)){
                         std::vector<int> tmp;
                         cut_polys.push_back(newtry_poly);
-                        std::cout << "Couple [" << i << ", " << j << "]" << std::endl;
+                        std::cout << "Pair [" << i << ", " << j << "]" << std::endl;
                         tmp.push_back(i);
                         tmp.push_back(j);
-                        coupled_indexs.push_back(tmp);
+                        paired_indexs.push_back(tmp);
                     }
                 }
 
@@ -808,7 +815,15 @@ void slicing_polys(const polygon_2d& polygon, std::vector<double>& normalized_SD
 
     //visualize_childpolys(polygon, cut_polys);
 
-    if(coupled_indexs.empty()) return;
+    if(paired_indexs.empty()) return;
+
+    distinct_pairs(paired_indexs);
+
+    std::cout << std::endl;
+    std::cout << "Post erase" << std::endl;
+    for(int i = 0; i < paired_indexs.size(); i++){
+        std::cout << "\tPair [" << paired_indexs[i].front() << ", " << paired_indexs[i].back() << "]" << std::endl;
+    }
 
     //std::cout << std::endl;
     //std::cout << "Generazione " << N << std::endl;
@@ -825,7 +840,7 @@ void slicing_polys(const polygon_2d& polygon, std::vector<double>& normalized_SD
 
 
     for(int i = 0; i < maxSDF_polylines.size(); i++){
-        if(checkif_polylineiscoupled(coupled_indexs, i)){
+        if(checkif_polylineispaired(paired_indexs, i)){
             for(int j = 0; j < maxSDF_polylines[i].polyline.size(); j++){
                 indexs_toerase.push_back(maxSDF_polylines[i].polyline_indexs[j]);
             }
@@ -843,18 +858,23 @@ void slicing_polys(const polygon_2d& polygon, std::vector<double>& normalized_SD
     //std::cout << polylines_indexs.size() << std::endl;
 
     //std::cout << "123" << std::endl;
+    int a = 0;
 
     while(!polylines_copy.empty()){
         polygon_2d tmp_newpoly;
         std::vector<size_t> polylinesindexs_toerase;
         bool flag_loop = false;
+        std::vector<std::vector<int>> used_pair;
         
         for(int i = 0; i < polylines_copy.size(); i++){
+
             for(int j = 0; j < maxSDF_polylines.size(); j++){
-                if(polylines_copy[i].back() == maxSDF_polylines[j].polyline[0].front() && checkif_polylineiscoupled(coupled_indexs, j)){
-                    //std::cout << "[" << i << "]:\t" << polylines_indexs[i] << std::endl;
+                if(polylines_copy[i].back() == maxSDF_polylines[j].polyline[0].front() && checkif_polylineispaired(paired_indexs, j)){
+                    used_pair.push_back(std::vector<int>{j, get_paired_polylines(paired_indexs, j)});
                     polylinesindexs_toerase.push_back(i);
-                    i = std::distance(polylines_indexs.begin(), std::find(polylines_indexs.begin(), polylines_indexs.end(), maxSDF_polylines[get_coupled_polylines(coupled_indexs, j)].polyline_indexs.back() + 1));
+                    //std::cout << i << std::endl;
+                    i = std::distance(polylines_indexs.begin(), std::find(polylines_indexs.begin(), polylines_indexs.end(), maxSDF_polylines[get_paired_polylines(paired_indexs, j)].polyline_indexs.back() + 1));
+                    //std::cout << i << std::endl;
                     if(i == 0) flag_loop = true;
                     break;
                 }
@@ -869,6 +889,8 @@ void slicing_polys(const polygon_2d& polygon, std::vector<double>& normalized_SD
         }
 
         //std::cout << "cutto" << std::endl;
+        a++;
+        //std::cout << a << std::endl;
 
         tmp_newpoly.outer().erase(std::unique(tmp_newpoly.outer().begin(), tmp_newpoly.outer().end()), tmp_newpoly.outer().end());
         correct(tmp_newpoly);
@@ -884,7 +906,7 @@ void slicing_polys(const polygon_2d& polygon, std::vector<double>& normalized_SD
     std::cout << "\t#cut_polys: " << cut_polys.size() << std::endl;
     std::cout << "\t#child_polys: " << child_polys.size() << std::endl;
 
-    //visualize_childpolys(polygon, child_polys);
+    visualize_childpolys(polygon, child_polys);
 
     if(N == 0){
         N++;
@@ -892,13 +914,13 @@ void slicing_polys(const polygon_2d& polygon, std::vector<double>& normalized_SD
         calculateSDF(child_polys[0]);
     }
 
-    /*if(N == 1){
+    if(N == 1){
         N++;
-        adjust_length_polylines(child_polys[1]);
-        calculateSDF(child_polys[1]);
+        adjust_length_polylines(child_polys[0]);
+        calculateSDF(child_polys[0]);
     }
 
-    if(N == 2){
+    /*if(N == 2){
         N++;
         adjust_length_polylines(cut_polys[0]);
         calculateSDF(cut_polys[0]);
@@ -1042,9 +1064,6 @@ void visualization(const polygon_2d& polygon, const std::vector<double>& SDFvalu
 }
 
 void calculateSDF(const polygon_2d& polygon){
-
-    //std::cout << "#segments: " << polygon.outer().size() << std::endl;
-    //if(polygon.outer().size() < 20) return;
 
     // Polygon as connected lines
     std::vector<linestring_2d> polylines(num_points(polygon) - 1);
