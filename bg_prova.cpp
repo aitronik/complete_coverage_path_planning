@@ -77,28 +77,35 @@ struct maxSDF_polyline{
 };
 
 // Parameters
+const std::string n_per = "39";
+
 const bool flag_save_img = false;
 const bool flag_print_file = false;
 const bool flag_save_lenmask = false;
 const bool flag_save_anglemask = false;
 const bool flag_save_rects = false;
-const std::string n_per = "4";
 const std::string strng_sweep_angle = "0";
 const std::string strng_angle_step = "0";
 //const std::string strng_tol = "10°";
 const double sweep_angle = 0;
 const double angle_step = 0;
 //const double tol = 10;
-const double window_factor = 0.04;
-
-const int scale_img = 15;
-int N = 0;
 
 const double dist_tol = 0.5;
 const double len_tol = 1;
 const double angle_tol = 5;
 const int nbeams_tol = 1;
 const std::string nbeams_string = "1";
+
+const bool flag_save_maxSDF = false;
+const bool flag_save_childpolys = false;
+const bool flag_save_slicedpolys = true;
+double area_originpoly;
+const double window_factor = 0.04;
+int N = 0;
+
+const int scale_img = 35;
+
 
 std::vector<std::vector<polygon_2d>> sliced_polys;
 
@@ -581,9 +588,11 @@ void visualize_polylines(const polygon_2d& polygon, const std::vector<maxSDF_pol
         }
     }
 
-    std::string strng_polylines_file = "SDFpolylines/per_" + n_per + "_gen0.jpg";
-    //cv::imwrite(strng_polylines_file, gray_image);
-    cv::imshow("Max SDF values", gray_image);
+    std::string strng_polylines_file = "immagini/SDFpolylines/per_" + n_per + "_gen" + std::to_string(N+1) + ".jpg";
+    if(flag_save_maxSDF)
+        cv::imwrite(strng_polylines_file, gray_image);
+    std::string strng_img_name = "Max SDF values gen #" + std::to_string(N+1);
+    cv::imshow(strng_img_name, gray_image);
 }
 
 void visualize_childpolys(const polygon_2d& polygon, const std::vector<polygon_2d>& cut_polys){
@@ -616,7 +625,11 @@ void visualize_childpolys(const polygon_2d& polygon, const std::vector<polygon_2
         cv::line(gray_image, start, end, cv::Scalar(150), 1);
     }
 
+    //std::cout << std::endl;
+    //std::cout << "Gen #" << N+1 << std::endl;
+
     for(int j = 0; j < cut_polys.size(); j++){
+        //std::cout << "Size poly[" << j << "]:\t" << num_points(cut_polys[j]) - 1 << std::endl;
         for(int i = 0; i < num_points(cut_polys[j]) - 1; i++){
             double start_x = img_scalefactor * (exterior_ring(cut_polys[j])[i].x() + (1.2*bbox_dims[0]/2 - bbox_center.x()));
             double start_y = (int)(1.2 * img_scalefactor * bbox_dims[1]) - img_scalefactor * (exterior_ring(cut_polys[j])[i].y() + (1.2*bbox_dims[1]/2 - bbox_center.y()));
@@ -628,8 +641,9 @@ void visualize_childpolys(const polygon_2d& polygon, const std::vector<polygon_2
         }
     }
 
-    std::string strng_childpolys_file = "SDFchildpolys/per_" + n_per + "_gen0.jpg";
-    //cv::imwrite(strng_childpolys_file, gray_image);
+    std::string strng_childpolys_file = "immagini/SDFchildpolys/per_" + n_per + "_gen" + std::to_string(N+1) + ".jpg";
+    if(flag_save_childpolys)
+        cv::imwrite(strng_childpolys_file, gray_image);
     std::string strng_name = "Child polys gen #" + std::to_string(N+1);
     cv::imshow(strng_name, gray_image);
     /*for(int i = 0; i < cut_polys.size(); i++){
@@ -716,6 +730,9 @@ void adjust_length_polylines(polygon_2d& polygon){
 }
 
 void slicing_polys(const polygon_2d& polygon, std::vector<double>& normalized_SDF, const std::vector<linestring_2d>& polylines){
+
+    std::cout << std::endl << "Gen #" << N << std::endl;
+
     const double maxSDF = *std::max_element(normalized_SDF.begin(), normalized_SDF.end());
     const double minSDF = *std::min_element(normalized_SDF.begin(), normalized_SDF.end());
     const double alpha = 4;
@@ -743,7 +760,6 @@ void slicing_polys(const polygon_2d& polygon, std::vector<double>& normalized_SD
     std::vector<linestring_2d> tmp_polyline;
     std::vector<size_t> tmp_indexs;
     maxSDF_polyline tmp_maxSDF;
-    std::cout << std::endl;
     for(int i = 0; i <= maxSDF_indexs.size(); i++){
         if(k != 0 && maxSDF_indexs[i] - maxSDF_indexs[i-1] != 1){
             k = 0;
@@ -760,15 +776,24 @@ void slicing_polys(const polygon_2d& polygon, std::vector<double>& normalized_SD
         k++;
     }
 
-    /*std::cout << std::endl;
-    for(int i = 0; i < maxSDF_polylines.size(); i++){
-        std::cout << "Polyline [" << i << "]\t" << std::endl;
-        for(int j = 0; j < maxSDF_polylines[i].polyline_indexs.size(); j++){
-            std::cout << "\tIndex [" << j << "]: " << maxSDF_polylines[i].polyline_indexs[j] << std::endl;
+    if(N == 5){
+        std::cout << std::endl;
+        std::cout << polygon.outer().size() << std::endl;       
+        for(int i = 0; i < maxSDF_polylines.size(); i++){
+            std::cout << "Polyline [" << i << "]\t" << std::endl;
+            for(int j = 0; j < maxSDF_polylines[i].polyline_indexs.size(); j++){
+                std::cout << "\tIndex [" << j << "]: " << maxSDF_polylines[i].polyline_indexs[j] << std::endl;
+            }
         }
-    }*/
+    }
 
-    visualize_polylines(polygon, maxSDF_polylines);
+    //visualize_polylines(polygon, maxSDF_polylines);
+
+    if(N == 5){
+        //visualize_polylines(polygon, maxSDF_polylines);
+        //return;
+    }
+    
     //if(N == 1) return;
 
     std::vector<polygon_2d> cut_polys;
@@ -819,7 +844,6 @@ void slicing_polys(const polygon_2d& polygon, std::vector<double>& normalized_SD
 
     distinct_pairs(paired_indexs);
 
-    std::cout << std::endl;
     std::cout << "Post erase" << std::endl;
     for(int i = 0; i < paired_indexs.size(); i++){
         std::cout << "\tPair [" << paired_indexs[i].front() << ", " << paired_indexs[i].back() << "]" << std::endl;
@@ -855,26 +879,30 @@ void slicing_polys(const polygon_2d& polygon, std::vector<double>& normalized_SD
         polylines_indexs.erase(polylines_indexs.begin() + indexs_toerase[i]);
     }
 
+    //std::cout << indexs_toerase.size() << std::endl;
     //std::cout << polylines_indexs.size() << std::endl;
 
     //std::cout << "123" << std::endl;
     int a = 0;
 
+
     while(!polylines_copy.empty()){
         polygon_2d tmp_newpoly;
         std::vector<size_t> polylinesindexs_toerase;
         bool flag_loop = false;
-        std::vector<std::vector<int>> used_pair;
+        //std::vector<std::vector<int>> used_pair;
         
         for(int i = 0; i < polylines_copy.size(); i++){
 
             for(int j = 0; j < maxSDF_polylines.size(); j++){
-                if(polylines_copy[i].back() == maxSDF_polylines[j].polyline[0].front() && checkif_polylineispaired(paired_indexs, j)){
-                    used_pair.push_back(std::vector<int>{j, get_paired_polylines(paired_indexs, j)});
+                //if(polylines_copy[i].back() == maxSDF_polylines[j].polyline[0].front() && checkif_polylineispaired(paired_indexs, j)){
+                if((polylines_indexs[i] + 1 == maxSDF_polylines[j].polyline_indexs[0] || polylines_copy[i].back() == maxSDF_polylines[j].polyline[0].front()) && checkif_polylineispaired(paired_indexs, j)){
+                    //used_pair.push_back(std::vector<int>{j, get_paired_polylines(paired_indexs, j)});
                     polylinesindexs_toerase.push_back(i);
                     //std::cout << i << std::endl;
                     i = std::distance(polylines_indexs.begin(), std::find(polylines_indexs.begin(), polylines_indexs.end(), maxSDF_polylines[get_paired_polylines(paired_indexs, j)].polyline_indexs.back() + 1));
                     //std::cout << i << std::endl;
+                    a++;
                     if(i == 0) flag_loop = true;
                     break;
                 }
@@ -882,19 +910,21 @@ void slicing_polys(const polygon_2d& polygon, std::vector<double>& normalized_SD
 
             if(flag_loop) break;
 
-            //std::cout << "[" << i << "]:\t" << polylines_indexs[i] << std::endl;
+            //if(N == 4 && a == 0) std::cout << "[" << i << "]:\t" << polylines_indexs[i] << std::endl;
             tmp_newpoly.outer().push_back(polylines_copy[i].front());
             tmp_newpoly.outer().push_back(polylines_copy[i].back());
             polylinesindexs_toerase.push_back(i);
+            //a++;
         }
 
-        //std::cout << "cutto" << std::endl;
         a++;
         //std::cout << a << std::endl;
 
         tmp_newpoly.outer().erase(std::unique(tmp_newpoly.outer().begin(), tmp_newpoly.outer().end()), tmp_newpoly.outer().end());
         correct(tmp_newpoly);
-        child_polys.push_back(tmp_newpoly);
+        if(tmp_newpoly.outer().size() != 0){
+            child_polys.push_back(tmp_newpoly);
+        }
 
         std::sort(polylinesindexs_toerase.begin(), polylinesindexs_toerase.end(), std::greater<size_t>());
         for(int i = 0; i < polylinesindexs_toerase.size(); i++){
@@ -903,41 +933,80 @@ void slicing_polys(const polygon_2d& polygon, std::vector<double>& normalized_SD
         }
     }
 
-    std::cout << "\t#cut_polys: " << cut_polys.size() << std::endl;
-    std::cout << "\t#child_polys: " << child_polys.size() << std::endl;
+    //std::cout << "#cut_polys: " << cut_polys.size() << std::endl;
+    std::cout << "#child_polys: " << child_polys.size() << std::endl;
 
-    visualize_childpolys(polygon, child_polys);
+    //std::cout << child_polys[1].outer().size() << std::endl;
 
-    if(N == 0){
+    //visualize_childpolys(polygon, child_polys);
+
+    /*if(N == 3){
+        //std::cout << child_polys[1].outer().size() << std::endl;
+        std::vector<polygon_2d> tmp;
+        tmp.push_back(child_polys[0]);
+        visualize_childpolys(polygon, tmp);
+    }*/
+    
+    //std::cout << sliced_polys.empty() << std::endl;
+    if(N + 1 > sliced_polys.size()){
+        sliced_polys.push_back(child_polys);
+    }
+    else{
+        sliced_polys[N].insert(sliced_polys[N].end(), child_polys.begin(), child_polys.end());
+    }
+
+    /*if(N == 0){
         N++;
-        adjust_length_polylines(child_polys[0]);
-        calculateSDF(child_polys[0]);
+        adjust_length_polylines(child_polys[1]);
+        calculateSDF(child_polys[1]);
+        N--;
     }
 
     if(N == 1){
         N++;
         adjust_length_polylines(child_polys[0]);
         calculateSDF(child_polys[0]);
+        N--;
     }
 
-    /*if(N == 2){
+    if(N == 2){
         N++;
-        adjust_length_polylines(cut_polys[0]);
-        calculateSDF(cut_polys[0]);
+        adjust_length_polylines(child_polys[0]);
+        calculateSDF(child_polys[0]);
+        N--;
+    }
+
+    if(N == 3){
+        N++;
+        adjust_length_polylines(child_polys[0]);
+        calculateSDF(child_polys[0]);
+        N--;
+    }
+
+    if(N == 4){
+        N++;
+        adjust_length_polylines(child_polys[0]);
+        calculateSDF(child_polys[0]);
+        N--;
     }*/
 
-   //sliced_polys.push_back(child_polys);
-
-    /*for(int i = 0; i < child_polys.size(); i++){
-        if(child_polys[i].outer().size() < 20) return;
+    for(int i = 0; i < child_polys.size(); i++){
+    //int i = 0;{
+        //std::cout << "Child poly[" << i << "]:\t" << area(child_polys[i]) << std::endl;
+        if(area(child_polys[i]) < 0.015 * area_originpoly) return;
+        N++;
         adjust_length_polylines(child_polys[i]);
         calculateSDF(child_polys[i]);
+        N--;
     }
 
-    for(int i = 0; i < cut_polys.size(); i++){
-        if(cut_polys[i].outer().size() < 20) return;
+    /*for(int i = 0; i < cut_polys.size(); i++){
+        std::cout << "Cut poly[" << i << "]:\t" << area(cut_polys[i]) << std::endl;
+        if(area(cut_polys[i]) < 0.015 * area_originpoly) return;
+        N++;
         adjust_length_polylines(cut_polys[i]);
         calculateSDF(cut_polys[i]);
+        N--;
     }*/
     
 }
@@ -988,8 +1057,9 @@ void visualize_slicedpolys(const polygon_2d& polygon, const std::vector<std::vec
 
     cv::Mat heatmap;
     cv::applyColorMap(gray_image, heatmap, cv::COLORMAP_JET);
-    //std::string strng_childpolys_file = "SDFchildpolys/per_" + n_per + "_gen0.jpg";
-    //cv::imwrite(strng_childpolys_file, gray_image);
+    std::string strng_slicedpolys_file = "immagini/slicedpolys/childpolys_" + n_per + ".jpg";
+    if(flag_save_slicedpolys)
+        cv::imwrite(strng_slicedpolys_file, heatmap);
     cv::imshow("Sliced polys", heatmap);
 }
 
@@ -1064,6 +1134,8 @@ void visualization(const polygon_2d& polygon, const std::vector<double>& SDFvalu
 }
 
 void calculateSDF(const polygon_2d& polygon){
+
+    //std::cout << polygon.outer().size() << std::endl;
 
     // Polygon as connected lines
     std::vector<linestring_2d> polylines(num_points(polygon) - 1);
@@ -1339,9 +1411,13 @@ int main(void){
 
     create_polygon(polygon);
 
+    area_originpoly = area(polygon);
+
+    std::cout << "Area original poly: " << area_originpoly << std::endl;
+
     calculateSDF(polygon);
 
-    //visualize_slicedpolys(polygon, sliced_polys);
+    visualize_slicedpolys(polygon, sliced_polys);
 
     cv::waitKey(0);
 
