@@ -41,10 +41,12 @@ typedef model::linestring<point_2d> linestring_2d;
 typedef model::polygon<point_2d> polygon_2d;
 typedef model::box<point_2d> box_2d;
 
-const std::string n_per = "4";
+const std::string n_per = "42bis";
+
+const bool flag_save_summask = false;
 
 const double angle_tot = 180;       // [degrees]
-const double angle_step = 2;       // [degrees]
+const double angle_step = 10;       // [degrees]
 
 const double sweepline_step = 0.1;  // [m]
 
@@ -91,8 +93,39 @@ void create_polygon(polygon_2d& polygon){
     correct(polygon);
 }
 
+double segmentTime(const double l, const double a, const double d, const double vmax) {
+    // Time from 0 to Vmax
+    double t_acc = vmax / a;
+    
+    // Time from Vmax to 0
+    double t_dec = vmax / d;
+    
+    // Len needed to acc from 0 to Vmax
+    double l_acc = (vmax * vmax) / (2 * a);
+    
+    // Len needed to dec from Vmax to 0
+    double l_dec = (vmax * vmax) / (2 * d);
+    
+    // Tot dist for triangular speed profile
+    double l_max = l_acc + l_dec;
+    
+    if (l_max >= l) {
+        return sqrt((2 * l) / a) + sqrt((2 * l) / d);
+    } else {
+        double t_costante = (l - l_max) / vmax;        
+        return t_acc + t_dec + t_costante;
+    }
+}
+
 void visualize_rotated_masks(const polygon_2d& polygon, const int& index, const std::vector<std::vector<linestring_2d>>& sweeplines){
     std::vector<double> x_poly, y_poly;
+
+    int cont = 0;
+    for(int i = 0; i < sweeplines.size(); i++){
+        for(int j = 0; j < sweeplines[i].size(); j++){
+            cont++;
+        }
+    }
 
     for(int i = 0; i < polygon.outer().size(); i++){
         x_poly.push_back(exterior_ring(polygon)[i].x());
@@ -149,8 +182,11 @@ void visualize_rotated_masks(const polygon_2d& polygon, const int& index, const 
         }
     }
 
+    
+
     cv::Mat heatmap;
     cv::applyColorMap(gray_image, heatmap, cv::COLORMAP_JET);
+    cv::putText(heatmap, std::to_string(cont), cv::Point(50, 50), cv::FONT_HERSHEY_SIMPLEX, 2, cv::Scalar(170, 170, 170), 3, 8, false);
     std::string name_fig = "Rotated poly of angle " + std::to_string((int)(angle_step * index)) + "°";
     cv::imshow(name_fig, heatmap);
 }
@@ -173,7 +209,8 @@ void visualize_sum_mask(const polygon_2d& polygon, const std::vector<std::vector
 
     const int img_scalefactor = (int)std::max(max_x - min_x, max_y - min_y)*100 > 1000 ? scale_img : 100;
 
-    cv::Mat gray_image((int)(1.2 * img_scalefactor * bbox_dims[1]), (int)(1.2 * img_scalefactor * bbox_dims[0]), CV_8UC1, cv::Scalar(0));
+    cv::Mat gray_image_min((int)(1.2 * img_scalefactor * bbox_dims[1]), (int)(1.2 * img_scalefactor * bbox_dims[0]), CV_8UC1, cv::Scalar(0));
+    cv::Mat gray_image_max((int)(1.2 * img_scalefactor * bbox_dims[1]), (int)(1.2 * img_scalefactor * bbox_dims[0]), CV_8UC1, cv::Scalar(0));
 
     for(int i = 0; i < num_points(polygon) - 1; i++){
         double start_x = img_scalefactor * (exterior_ring(polygon)[i].x() + (1.2*bbox_dims[0]/2 - bbox_center.x()));
@@ -182,27 +219,39 @@ void visualize_sum_mask(const polygon_2d& polygon, const std::vector<std::vector
         double end_y = (int)(1.2 * img_scalefactor * bbox_dims[1]) - img_scalefactor * (exterior_ring(polygon)[i+1].y() + (1.2*bbox_dims[1]/2 - bbox_center.y()));
         cv::Point start(start_x, start_y);
         cv::Point end(end_x, end_y);
-        cv::line(gray_image, start, end, cv::Scalar(170), 1);
+        cv::line(gray_image_min, start, end, cv::Scalar(170), 1);
+        cv::line(gray_image_max, start, end, cv::Scalar(170), 1);
     }
 
 
-    std::vector<double> dist_sorted = distances;
-    std::sort(dist_sorted.begin(), dist_sorted.end());
-    const double max_dist = dist_sorted[dist_sorted.size() - 1];
+    std::vector<double> dist_sorted_min = distances;
+    std::vector<double> dist_sorted_max = distances;
+    std::sort(dist_sorted_min.begin(), dist_sorted_min.end(), std::greater<double>());
+    std::sort(dist_sorted_max.begin(), dist_sorted_max.end());
+    //const double max_dist = dist_sorted[dist_sorted.size() - 1];
 
-    for(int i = 0; i < dist_sorted.size(); i++){
+    for(int i = 0; i < dist_sorted_min.size(); i++){
         std::cout << i << std::endl;
         for(int j = 0; j < all_sweeplines.size(); j++){
             for(int k = 0; k < all_sweeplines[j].size(); k++){
                 for(int l = 0; l < all_sweeplines[j][k].size(); l++){
-                    if(dist_sorted[i] == distance(all_sweeplines[j][k][l].front(), all_sweeplines[j][k][l].back())){
+                    if(dist_sorted_min[i] == distance(all_sweeplines[j][k][l].front(), all_sweeplines[j][k][l].back())){
                         double start_x = img_scalefactor * (all_sweeplines[j][k][l].front().x() + (1.2*bbox_dims[0]/2 - bbox_center.x()));
                         double start_y = (int)(1.2 * img_scalefactor * bbox_dims[1]) - img_scalefactor * (all_sweeplines[j][k][l].front().y() + (1.2*bbox_dims[1]/2 - bbox_center.y()));
                         double end_x = img_scalefactor * (all_sweeplines[j][k][l].back().x() + (1.2*bbox_dims[0]/2 - bbox_center.x()));
                         double end_y = (int)(1.2 * img_scalefactor * bbox_dims[1]) - img_scalefactor * (all_sweeplines[j][k][l].back().y() + (1.2*bbox_dims[1]/2 - bbox_center.y()));
                         cv::Point start(start_x, start_y);
                         cv::Point end(end_x, end_y);
-                        cv::line(gray_image, start, end, cv::Scalar((255) * (j + 1) * angle_step / angle_tot), 2);
+                        cv::line(gray_image_min, start, end, cv::Scalar((255) * (j + 1) * angle_step / angle_tot), 2);
+                    }
+                    if(dist_sorted_max[i] == distance(all_sweeplines[j][k][l].front(), all_sweeplines[j][k][l].back())){
+                        double start_x = img_scalefactor * (all_sweeplines[j][k][l].front().x() + (1.2*bbox_dims[0]/2 - bbox_center.x()));
+                        double start_y = (int)(1.2 * img_scalefactor * bbox_dims[1]) - img_scalefactor * (all_sweeplines[j][k][l].front().y() + (1.2*bbox_dims[1]/2 - bbox_center.y()));
+                        double end_x = img_scalefactor * (all_sweeplines[j][k][l].back().x() + (1.2*bbox_dims[0]/2 - bbox_center.x()));
+                        double end_y = (int)(1.2 * img_scalefactor * bbox_dims[1]) - img_scalefactor * (all_sweeplines[j][k][l].back().y() + (1.2*bbox_dims[1]/2 - bbox_center.y()));
+                        cv::Point start(start_x, start_y);
+                        cv::Point end(end_x, end_y);
+                        cv::line(gray_image_max, start, end, cv::Scalar((255) * (j + 1) * angle_step / angle_tot), 2);
                     }
                 }
             }
@@ -223,11 +272,14 @@ void visualize_sum_mask(const polygon_2d& polygon, const std::vector<std::vector
         }
     }*/
 
-    cv::Mat heatmap;
-    cv::applyColorMap(gray_image, heatmap, cv::COLORMAP_JET);
+    cv::Mat heatmap_min, heatmap_max;
+    cv::applyColorMap(gray_image_min, heatmap_min, cv::COLORMAP_JET);
+    cv::applyColorMap(gray_image_max, heatmap_max, cv::COLORMAP_JET);
     std::string strng_img = "immagini/sum_masks/summask_" + n_per + ".jpg";
-    cv::imwrite(strng_img, heatmap);
-    cv::imshow("Sum mask", heatmap);
+    //if(flag_save_summask)
+        //cv::imwrite(strng_img, heatmap);
+    cv::imshow("Sum mask min", heatmap_min);
+    cv::imshow("Sum mask max", heatmap_max);
 }
 
 point_2d rotate_point(const point_2d& point, const double& alpha, const point_2d& cent){
@@ -329,7 +381,7 @@ int main(void){
         rotate_poly(tmp_poly, polygon, deg2rad(-angle_step * i), cent);
         write_vertical_lines(tmp_poly, sweeplines);
         rotate_vertical_lines(sweeplines, deg2rad(angle_step * i), cent);
-        //visualize_rotated_masks(polygon, i, sweeplines);
+        visualize_rotated_masks(polygon, i, sweeplines);
         for(int j = 0; j < sweeplines.size(); j++){
             for(int k = 0; k < sweeplines[j].size(); k++){
                 distances.push_back(distance(sweeplines[j][k].front(), sweeplines[j][k].back()));
@@ -340,7 +392,7 @@ int main(void){
 
     //std::cout << distances.size() << std::endl;
 
-    visualize_sum_mask(polygon, all_sweeplines, distances);
+    //visualize_sum_mask(polygon, all_sweeplines, distances);
 
     cv::waitKey(0);
 
