@@ -41,14 +41,18 @@ typedef model::linestring<point_2d> linestring_2d;
 typedef model::polygon<point_2d> polygon_2d;
 typedef model::box<point_2d> box_2d;
 
-const std::string n_per = "42bis";
+const std::string n_per = "45";
 
 const bool flag_save_summask = false;
+const bool flag_save_angledmask = false;
 
 const double angle_tot = 180;       // [degrees]
 const double angle_step = 10;       // [degrees]
 
-const double sweepline_step = 0.1;  // [m]
+const double sweepline_step = 0.5;  // [m]
+const double acc = 0.2;             // [m/s^2]
+const double dec = 0.2;             // [m/s^2]
+const double vmax = 0.55;           // [m/s]
 
 const int scale_img = 35;
 
@@ -160,7 +164,7 @@ void visualize_rotated_masks(const polygon_2d& polygon, const int& index, const 
         for(int j = 0; j < sweeplines[i].size(); j++){
             tmp_dist.push_back(distance(sweeplines[i][j].front(), sweeplines[i][j].back()));
         }
-        sweep_distances.push_back(tmp_dist);
+        if(tmp_dist.size() != 0) sweep_distances.push_back(tmp_dist);
     }
 
     std::vector<double> max_distances;
@@ -170,23 +174,27 @@ void visualize_rotated_masks(const polygon_2d& polygon, const int& index, const 
 
     double max_dist = *std::max_element(max_distances.begin(), max_distances.end());
 
+    double time = 0;
     for(int i = 0; i < sweeplines.size(); i++){
         for(int j = 0; j < sweeplines[i].size(); j++){
+            time += segmentTime(distance(sweeplines[i][j].front(), sweeplines[i][j].back()), acc, dec, vmax);
             double start_x = img_scalefactor * (sweeplines[i][j].front().x() + (1.2*bbox_dims[0]/2 - bbox_center.x()));
             double start_y = (int)(1.2 * img_scalefactor * bbox_dims[1]) - img_scalefactor * (sweeplines[i][j].front().y() + (1.2*bbox_dims[1]/2 - bbox_center.y()));
             double end_x = img_scalefactor * (sweeplines[i][j].back().x() + (1.2*bbox_dims[0]/2 - bbox_center.x()));
             double end_y = (int)(1.2 * img_scalefactor * bbox_dims[1]) - img_scalefactor * (sweeplines[i][j].back().y() + (1.2*bbox_dims[1]/2 - bbox_center.y()));
             cv::Point start(start_x, start_y);
             cv::Point end(end_x, end_y);
-            cv::line(gray_image, start, end, cv::Scalar((255 - 70) * distance(sweeplines[i][j].front(), sweeplines[i][j].back()) / max_dist + 70), 2);
+            cv::line(gray_image, start, end, cv::Scalar((255 - 70) * distance(sweeplines[i][j].front(), sweeplines[i][j].back()) / max_dist + 70), (int)(sweepline_step * scale_img));
         }
     }
 
-    
-
     cv::Mat heatmap;
     cv::applyColorMap(gray_image, heatmap, cv::COLORMAP_JET);
-    cv::putText(heatmap, std::to_string(cont), cv::Point(50, 50), cv::FONT_HERSHEY_SIMPLEX, 2, cv::Scalar(170, 170, 170), 3, 8, false);
+    cv::putText(heatmap, std::to_string(cont), cv::Point(50, 50), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(170, 170, 170), 3, 8, false);
+    cv::putText(heatmap, std::to_string(time), cv::Point(150, 50), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(170, 170, 170), 3, 8, false);
+    std::string string_fp_angledmask = "immagini/angledmasks/" + n_per + "/angledmask_" + std::to_string((int)(angle_step * index)) + ".jpg";
+    if(flag_save_angledmask)
+        cv::imwrite(string_fp_angledmask, heatmap);
     std::string name_fig = "Rotated poly of angle " + std::to_string((int)(angle_step * index)) + "°";
     cv::imshow(name_fig, heatmap);
 }
@@ -321,7 +329,7 @@ void write_vertical_lines(const polygon_2d& poly, std::vector<std::vector<linest
     //std::cout << "min_y:\t" << min_y << std::endl;
     //std::cout << "max_y:\t" << max_y << std::endl;
 
-    for(int i = 1; i < (max_x - min_x)/0.1; i++){
+    for(int i = 1; i < (max_x - min_x)/sweepline_step; i++){
     //for(int i = 120; i < 128; i++){
         std::vector<linestring_2d> tmp_sweepline;
 
