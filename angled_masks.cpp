@@ -41,7 +41,7 @@ typedef model::linestring<point_2d> linestring_2d;
 typedef model::polygon<point_2d> polygon_2d;
 typedef model::box<point_2d> box_2d;
 
-const std::string n_per = "45";
+const std::string n_per = "3";
 
 const bool flag_save_summask = false;
 const bool flag_save_angledmask = false;
@@ -54,7 +54,7 @@ const double acc = 0.2;             // [m/s^2]
 const double dec = 0.2;             // [m/s^2]
 const double vmax = 0.55;           // [m/s]
 
-const int scale_img = 35;
+const int scale_img = 20;
 
 inline double rad2deg(double alpha){
     return alpha*180/M_PI;
@@ -65,8 +65,19 @@ inline double deg2rad(double alpha){
 }
 
 void create_polygon(polygon_2d& polygon){
-    std::ifstream file;
+    std::ifstream file, file_hole;
     file.open("../dataset_perimetri/" + n_per + "/lista_punti.txt", std::ios::in);
+
+    int n_holes = 0;
+    do{
+        file_hole.open("../dataset_perimetri/" + n_per + "/buco_" + std::to_string(n_holes) + ".txt", std::ios::in);
+        if(!file_hole) break;
+        file_hole.close();
+        n_holes++;
+    }while(file_hole);
+    file_hole.close();
+
+    //std::cout << n_holes << std::endl;
 
     std::vector<double> tmp;
     std::string row;
@@ -92,8 +103,40 @@ void create_polygon(polygon_2d& polygon){
             append(polygon, make<point_2d>(x, tmp[i]));
         }
     }
-
     file.close();
+    
+    polygon.inners().resize(n_holes);
+    for(int i = 0; i < n_holes; i++){
+        tmp.clear();
+        row.clear();
+        file_hole.open("../dataset_perimetri/" + n_per + "/buco_" + std::to_string(i) + ".txt", std::ios::in);
+        //model::ring<point_2d>& inner = polygon.inners().back();
+        model::ring<point_2d>& inner = interior_rings(polygon)[i];
+        while(std::getline(file_hole, row)){
+
+            std::stringstream ss(row);
+            std::string value;
+
+            while (std::getline(ss, value, ',')) {
+                double elem = std::stod(value);
+                tmp.push_back(elem);
+            }
+
+        }
+
+        double x1;
+        for(int j = 0; j < tmp.size(); j++){
+            if(j % 2 == 0){
+                x1 = tmp[j];
+            }
+            else{
+                //append(inner, make<point_2d>(x1, tmp[j]));
+                inner.push_back(make<point_2d>(x1, tmp[j]));
+            }
+        }
+        file_hole.close();
+    }
+
     correct(polygon);
 }
 
@@ -148,7 +191,7 @@ void visualize_rotated_masks(const polygon_2d& polygon, const int& index, const 
 
     cv::Mat gray_image((int)(1.2 * img_scalefactor * bbox_dims[1]), (int)(1.2 * img_scalefactor * bbox_dims[0]), CV_8UC1, cv::Scalar(0));
 
-    for(int i = 0; i < num_points(polygon) - 1; i++){
+    for(int i = 0; i < exterior_ring(polygon).size() - 1; i++){
         double start_x = img_scalefactor * (exterior_ring(polygon)[i].x() + (1.2*bbox_dims[0]/2 - bbox_center.x()));
         double start_y = (int)(1.2 * img_scalefactor * bbox_dims[1]) - img_scalefactor * (exterior_ring(polygon)[i].y() + (1.2*bbox_dims[1]/2 - bbox_center.y()));
         double end_x = img_scalefactor * (exterior_ring(polygon)[i+1].x() + (1.2*bbox_dims[0]/2 - bbox_center.x()));
@@ -156,6 +199,18 @@ void visualize_rotated_masks(const polygon_2d& polygon, const int& index, const 
         cv::Point start(start_x, start_y);
         cv::Point end(end_x, end_y);
         cv::line(gray_image, start, end, cv::Scalar(170), 1);
+    }
+
+    for(int j = 0; j < polygon.inners().size(); j++){
+        for(int i = 0; i < interior_rings(polygon)[j].size() - 1; i++){
+            double start_x = img_scalefactor * (interior_rings(polygon)[j][i].x() + (1.2*bbox_dims[0]/2 - bbox_center.x()));
+            double start_y = (int)(1.2 * img_scalefactor * bbox_dims[1]) - img_scalefactor * (interior_rings(polygon)[j][i].y() + (1.2*bbox_dims[1]/2 - bbox_center.y()));
+            double end_x = img_scalefactor * (interior_rings(polygon)[j][i+1].x() + (1.2*bbox_dims[0]/2 - bbox_center.x()));
+            double end_y = (int)(1.2 * img_scalefactor * bbox_dims[1]) - img_scalefactor * (interior_rings(polygon)[j][i+1].y() + (1.2*bbox_dims[1]/2 - bbox_center.y()));
+            cv::Point start(start_x, start_y);
+            cv::Point end(end_x, end_y);
+            cv::line(gray_image, start, end, cv::Scalar(170), 1);
+        }
     }
 
     std::vector<std::vector<double>> sweep_distances;
@@ -191,8 +246,8 @@ void visualize_rotated_masks(const polygon_2d& polygon, const int& index, const 
     cv::Mat heatmap;
     cv::applyColorMap(gray_image, heatmap, cv::COLORMAP_JET);
     cv::putText(heatmap, std::to_string(cont), cv::Point(50, 50), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(170, 170, 170), 3, 8, false);
-    cv::putText(heatmap, std::to_string(time), cv::Point(150, 50), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(170, 170, 170), 3, 8, false);
-    std::string string_fp_angledmask = "immagini/angledmasks/" + n_per + "/angledmask_" + std::to_string((int)(angle_step * index)) + ".jpg";
+    cv::putText(heatmap, std::to_string((int)std::round(time)) + " s", cv::Point(150, 50), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(170, 170, 170), 3, 8, false);
+    std::string string_fp_angledmask = "immagini/angledmasks/" + n_per + "/angledmask_" + std::to_string((int)(angle_step * index)) + "_nholes3.jpg";
     if(flag_save_angledmask)
         cv::imwrite(string_fp_angledmask, heatmap);
     std::string name_fig = "Rotated poly of angle " + std::to_string((int)(angle_step * index)) + "°";
@@ -297,9 +352,18 @@ point_2d rotate_point(const point_2d& point, const double& alpha, const point_2d
 }
 
 void rotate_poly(polygon_2d& tmp_poly, const polygon_2d& polygon, const double& alpha, const point_2d& cent){
+
     for(int i = 0; i < polygon.outer().size(); i++){
         tmp_poly.outer().push_back(rotate_point(exterior_ring(polygon)[i], alpha, cent));
     }
+
+    tmp_poly.inners().resize(polygon.inners().size());
+    for(int i = 0; i < tmp_poly.inners().size(); i++){
+        for(int j = 0; j < interior_rings(polygon)[i].size(); j++){
+            interior_rings(tmp_poly)[i].push_back(rotate_point(interior_rings(polygon)[i][j], alpha, cent));
+        }
+    }
+
     correct(tmp_poly);
 
 }
@@ -323,28 +387,57 @@ void write_vertical_lines(const polygon_2d& poly, std::vector<std::vector<linest
     const double min_x = *std::min_element(x_poly.begin(), x_poly.end());
     const double min_y = *std::min_element(y_poly.begin(), y_poly.end()) * 0.8;
 
-    //std::cout << std::endl;
-    //std::cout << "min_x:\t" << min_x << std::endl;
-    //std::cout << "max_x:\t" << max_x << std::endl;
-    //std::cout << "min_y:\t" << min_y << std::endl;
-    //std::cout << "max_y:\t" << max_y << std::endl;
-
-    for(int i = 1; i < (max_x - min_x)/sweepline_step; i++){
+    for(int i = 0; i < (max_x - min_x)/sweepline_step; i++){
     //for(int i = 120; i < 128; i++){
+    //int i = 40;{
         std::vector<linestring_2d> tmp_sweepline;
 
         linestring_2d sweepline;
-        sweepline.push_back(make<point_2d>(min_x + i * sweepline_step, min_y));
-        sweepline.push_back(make<point_2d>(min_x + i * sweepline_step, max_y));
+        sweepline.push_back(make<point_2d>(min_x + i * sweepline_step + sweepline_step/2, min_y));
+        sweepline.push_back(make<point_2d>(min_x + i * sweepline_step + sweepline_step/2, max_y));
 
         linestring_2d inter;
         intersection(poly, sweepline, inter);
         order_ydec(inter);
+
+        //std::cout << "[" << i << "]:\t" << inter.size() << std::endl;
+
+        if(inter.size() % 2 != 0 && inter.size() != 0) inter.pop_back();
+
+        point_2d midpt_prec;
+        if(inter.size() != 0) make<point_2d>((inter[0].x() + inter[1].x())/2, (inter[0].y() + inter[1].y())/2);
+        for(int j = 1; j < inter.size() == 0 ? 0 : inter.size() - 1; j++){
+            point_2d midpt((inter[j].x() + inter[j+1].x())/2, (inter[j].y() + inter[j+1].y())/2);
+            if(within(midpt, poly) && within(midpt_prec, poly)){
+                inter.erase(inter.begin() + j);
+                j--;
+                //break;
+            }
+            midpt_prec = midpt;
+        }
+
+        /*for(int j = 0; j < inter.size(); j++){
+            const double eps = 1e-3;
+            point_2d ypt_minus(inter[j].x(), inter[j].y() - eps);
+            point_2d ypt_plus(inter[j].x(), inter[j].y() + eps);
+            if( (within(ypt_minus, poly) && within(ypt_plus, poly)) || (!within(ypt_minus, poly) && !within(ypt_plus, poly)) ){
+                inter.erase(inter.begin() + j);
+                j--;
+                //break;
+            }
+        }*/
+        
+        //std::cout << "[" << i << "]:\t" << inter.size() << std::endl;
+        
+
         //if(inter.size() % 2 == 0){
             for(int j = 0; j < inter.size(); j+=2){
                 linestring_2d tmp;
                 tmp.push_back(inter[j]);
                 tmp.push_back(inter[j+1]);
+                //if(!within(make<point_2d>((tmp.front().x() + tmp.back().x())/2, (tmp.front().y() + tmp.back().y())/2), poly))
+                //if(!within(tmp, poly))
+                //    std::cout << "[" << i << ", " << inter.size() << "]:\t" << dsv(tmp) << std::endl;
                 tmp_sweepline.push_back(tmp);
             }
         //}
@@ -376,6 +469,10 @@ int main(void){
     polygon_2d polygon;
     create_polygon(polygon);
 
+    /*for(int i = 0; i < interior_rings(polygon)[0].size(); i++){
+        std::cout << "[" << i << "]:\t" << dsv(interior_rings(polygon)[0][i]) << std::endl;
+    }*/
+
     point_2d cent;
     centroid(polygon, cent);
 
@@ -383,7 +480,7 @@ int main(void){
     std::vector<double> distances;
     //std::vector<linestring_2d> all_sweeplines;
     for(int i = 0; i < angle_tot / angle_step; i++){
-    //int i = 16;{
+    //int i = 1;{
         polygon_2d tmp_poly;
         std::vector<std::vector<linestring_2d>> sweeplines;
         rotate_poly(tmp_poly, polygon, deg2rad(-angle_step * i), cent);
