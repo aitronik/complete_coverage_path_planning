@@ -54,7 +54,7 @@ const double acc = 0.2;             // [m/s^2]
 const double dec = 0.2;             // [m/s^2]
 const double vmax = 0.55;           // [m/s]
 
-const int scale_img = 20;
+const int scale_img = 25;
 
 inline double rad2deg(double alpha){
     return alpha*180/M_PI;
@@ -164,7 +164,7 @@ double segmentTime(const double l, const double a, const double d, const double 
     }
 }
 
-void visualize_rotated_masks(const polygon_2d& polygon, const int& index, const std::vector<std::vector<linestring_2d>>& sweeplines){
+void visualize_rotated_masks(const polygon_2d& polygon, const int& index, const std::vector<std::vector<linestring_2d>>& sweeplines, std::vector<double>& times, std::vector<int>& conts){
     std::vector<double> x_poly, y_poly;
 
     int cont = 0;
@@ -173,6 +173,7 @@ void visualize_rotated_masks(const polygon_2d& polygon, const int& index, const 
             cont++;
         }
     }
+    conts.push_back(cont);
 
     for(int i = 0; i < polygon.outer().size(); i++){
         x_poly.push_back(exterior_ring(polygon)[i].x());
@@ -243,10 +244,12 @@ void visualize_rotated_masks(const polygon_2d& polygon, const int& index, const 
         }
     }
 
+    times.push_back(time);
+
     cv::Mat heatmap;
     cv::applyColorMap(gray_image, heatmap, cv::COLORMAP_JET);
-    cv::putText(heatmap, std::to_string(cont), cv::Point(50, 50), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(170, 170, 170), 3, 8, false);
-    cv::putText(heatmap, std::to_string((int)std::round(time)) + " s", cv::Point(150, 50), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(170, 170, 170), 3, 8, false);
+    cv::putText(heatmap, std::to_string(cont), cv::Point(50, 50), cv::FONT_HERSHEY_SIMPLEX, 1.5, cv::Scalar(170, 170, 170), 3, 8, false);
+    cv::putText(heatmap, std::to_string((int)std::round(time)) + " s", cv::Point(175, 50), cv::FONT_HERSHEY_SIMPLEX, 1.5, cv::Scalar(170, 170, 170), 3, 8, false);
     std::string string_fp_angledmask = "immagini/angledmasks/" + n_per + "/angledmask_" + std::to_string((int)(angle_step * index)) + "_nholes3.jpg";
     if(flag_save_angledmask)
         cv::imwrite(string_fp_angledmask, heatmap);
@@ -469,6 +472,9 @@ int main(void){
     polygon_2d polygon;
     create_polygon(polygon);
 
+    std::vector<double> times;
+    std::vector<int> conts;
+
     /*for(int i = 0; i < interior_rings(polygon)[0].size(); i++){
         std::cout << "[" << i << "]:\t" << dsv(interior_rings(polygon)[0][i]) << std::endl;
     }*/
@@ -486,7 +492,7 @@ int main(void){
         rotate_poly(tmp_poly, polygon, deg2rad(-angle_step * i), cent);
         write_vertical_lines(tmp_poly, sweeplines);
         rotate_vertical_lines(sweeplines, deg2rad(angle_step * i), cent);
-        visualize_rotated_masks(polygon, i, sweeplines);
+        visualize_rotated_masks(polygon, i, sweeplines, times, conts);
         for(int j = 0; j < sweeplines.size(); j++){
             for(int k = 0; k < sweeplines[j].size(); k++){
                 distances.push_back(distance(sweeplines[j][k].front(), sweeplines[j][k].back()));
@@ -494,6 +500,23 @@ int main(void){
         }
         all_sweeplines.push_back(sweeplines);
     }
+
+    double max_time = *std::max_element(times.begin(), times.end());
+    double min_time = *std::min_element(times.begin(), times.end());
+
+    int barWidth = 50;
+    int imgHeight = 400;
+    cv::Mat img(imgHeight, times.size() * barWidth, CV_8UC3, cv::Scalar(255, 255, 255)); // Immagine bianca
+
+    // Disegna le barre
+    for (size_t i = 0; i < times.size(); ++i) {
+        cv::rectangle(img, cv::Point(i * barWidth, imgHeight - imgHeight * (times[i] - min_time)/(max_time - min_time)), cv::Point((i + 1) * barWidth - 1, imgHeight - 1), cv::Scalar(0, 0, 255), -1);
+        cv::putText(img, std::to_string(conts[i]), cv::Point(i * barWidth, imgHeight), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(170, 170, 170), 1, 8, false);
+    }
+
+    cv::imshow("Bar Chart", img);
+    cv::waitKey(0);
+    cv::destroyAllWindows();
 
     //std::cout << distances.size() << std::endl;
 
