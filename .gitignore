@@ -1,2 +1,7 @@
 immagini/
 bg_examples/
+Training/
+BBox_DRL.py
+try.py
+visualize_perimeter.py
+sw_input_logs/
