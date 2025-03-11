@@ -144,7 +144,7 @@ void create_polygon(polygon_2d& polygon){
     correct(polygon);
 }
 
-void save_perimeter(const polygon_2d& polygon){
+void save_perimeter(const polygon_2d& polygon, const polygon_2d& bbox_poly){
     std::vector<double> x_poly, y_poly;
 
     for(int i = 0; i < polygon.outer().size(); i++){
@@ -173,6 +173,16 @@ void save_perimeter(const polygon_2d& polygon){
         double start_y = 1000 - img_scalefactor * (exterior_ring(polygon)[i].y() + (500/img_scalefactor - bbox_center.y()));
         double end_x = img_scalefactor * (exterior_ring(polygon)[i+1].x() + (500/img_scalefactor - bbox_center.x()));
         double end_y = 1000 - img_scalefactor * (exterior_ring(polygon)[i+1].y() + (500/img_scalefactor - bbox_center.y()));
+        cv::Point start(start_x, start_y);
+        cv::Point end(end_x, end_y);
+        cv::line(gray_image, start, end, cv::Scalar(255), 1);
+    }
+
+    for(int i = 0; i < exterior_ring(bbox_poly).size() - 1; i++){
+        double start_x = img_scalefactor * (exterior_ring(bbox_poly)[i].x() + (500/img_scalefactor - bbox_center.x()));
+        double start_y = 1000 - img_scalefactor * (exterior_ring(bbox_poly)[i].y() + (500/img_scalefactor - bbox_center.y()));
+        double end_x = img_scalefactor * (exterior_ring(bbox_poly)[i+1].x() + (500/img_scalefactor - bbox_center.x()));
+        double end_y = 1000 - img_scalefactor * (exterior_ring(bbox_poly)[i+1].y() + (500/img_scalefactor - bbox_center.y()));
         cv::Point start(start_x, start_y);
         cv::Point end(end_x, end_y);
         cv::line(gray_image, start, end, cv::Scalar(255), 1);
@@ -554,8 +564,6 @@ int main(void){
 
         areas.push_back(area(polygon));
 
-        //save_perimeter(polygon);
-
         std::vector<double> times;
         std::vector<int> conts;
 
@@ -572,6 +580,8 @@ int main(void){
         bbox_poly.outer().push_back(bbox.max_corner());
         bbox_poly.outer().push_back(make<point_2d>(bbox.min_corner().x(), bbox.max_corner().y()));
         correct(bbox_poly);
+
+        //save_perimeter(polygon, bbox_poly);
 
         std::vector<std::vector<std::vector<linestring_2d>>> all_sweeplines;
         //std::vector<double> distances;

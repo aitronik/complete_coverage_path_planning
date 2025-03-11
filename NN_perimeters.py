@@ -1,4 +1,6 @@
 import numpy as np
+import matplotlib.pyplot as plt
+import cv2
 
 import torch
 import torch.nn as nn
@@ -17,7 +19,7 @@ acc = 0.2
 dec = 0.2
 vmax = 0.55
 
-k_cov = 10
+k_cov = 1
 k_time = 1
 
 fp_width = 0.5
@@ -39,6 +41,9 @@ def segmentTime(l, a=acc, d=dec, vmax=vmax):
         t_costante = (l - l_max) / vmax        
         return t_acc + t_dec + t_costante
 
+def deg2rad(alpha):
+    return alpha * np.pi / 180
+
 with open("sw_input_logs/input_per_1.txt", "r") as f:
     header = list(map(float, f.readline().strip().split("\t")))
 
@@ -51,8 +56,10 @@ data = np.genfromtxt("sw_input_logs/input_per_1.txt", delimiter='\t', skip_heade
 y_bbox = np.mean(np.sum(np.abs(data[0:header[1], :]), axis=1)[np.sum(np.abs(data[0:header[1], :]), axis=1) != 0])
 x_bbox = np.mean(np.sum(np.abs(data[int(header[0]*header[1]/2):int(header[0]*header[1]/2 + header[1]), :]), axis=1)[np.sum(np.abs(data[int(header[0]*header[1]/2):int(header[0]*header[1]/2 + header[1]), :]), axis=1) != 0])
 
-print(y_bbox)
-print(x_bbox)
+# print(y_bbox)
+# print(x_bbox)
+
+# print(not np.all(data[100, :] == 0))
 
 tmp_data = np.sum(np.abs(data), axis=1)
 
@@ -68,28 +75,87 @@ min_len = min(input_data)
 n_input = np.prod(header)
 n_output = 4000
 
-def get_init_point(action_sample, x_bbox=x_bbox, y_bbox=y_bbox):
+init_pts = np.ones((header[0] * header[1], 2))*-1
 
-    if action_sample[0] == 0:
-        return fp_width * action_sample[1] + fp_width/2, y_bbox
+for i in range(header[0]):
+    
+    for j in range(header[1]):
 
-    elif action_sample[0] > 0 and action_sample <= header[0]/2:
+        if i == 0:
+
+            if not np.all(data[header[1] * i + j, :] == 0):
+                init_pts[header[1] * i + j, :] = np.array([fp_width/2 + j * fp_width, y_bbox])
+            
+            # else:
+            #     init_pts[header[1] * i + j, :] = np.array([-1, -1])
         
-        pass
+        elif i == header[0]/2:
 
-    elif action_sample > header[0]/2 and action_sample < header[0]:
-        pass
+            if not np.all(data[header[1] * i + j, :] == 0):
+                init_pts[header[1] * i + j, :] = np.array([0, fp_width/2 + j * fp_width])
+            
+            # else:
+            #     init_pts[header[1] * i + j, :] = np.array([-1, -1])
+        
+        elif i > 0 and i < header[0]/2:
 
-    return
+            if not np.all(data[header[1] * i + j, :] == 0):
+
+                if (fp_width/2 + j * fp_width)/np.sin(deg2rad(i * 180 / header[0])) <= y_bbox:
+                    init_pts[header[1] * i + j, :] = np.array([0, (fp_width/2 + j * fp_width)/np.sin(deg2rad(i * 180 / header[0]))])
+
+                else:
+                    init_pts[header[1] * i + j, :] = np.array([np.tan(deg2rad(i * 180 / header[0])) * ((fp_width/2 + j * fp_width)/np.sin(deg2rad(i * 180 / header[0])) - y_bbox), y_bbox])
+            
+            # else:
+            #     init_pts[header[1] * i + j, :] = np.array([-1, -1])
+        
+        elif i > header[0]/2 and i < header[0]:
+
+            if not np.all(data[header[1] * i + j, :] == 0):
+
+                if (fp_width/2 + j * fp_width)/np.cos(np.pi - deg2rad(i * 180 / header[0])) <= x_bbox:
+                    init_pts[header[1] * i + j, :] = np.array([x_bbox - (fp_width/2 + j * fp_width)/np.cos(np.pi - deg2rad(i * 180 / header[0])), 0])
+
+                else:
+                    init_pts[header[1] * i + j, :] = np.array([0, np.tan(deg2rad(i * 180 / header[0]) - np.pi/2) * ((fp_width/2 + j * fp_width)/np.cos(np.pi - deg2rad(i * 180 / header[0])) - x_bbox)])
+                        
+            # else:
+            #     init_pts[header[1] * i + j, :] = np.array([-1, -1])
+
+# plt.scatter(init_pts[:, 0], init_pts[:, 1])
+# plt.show()
 
 def check_intersections(action_sample, action, x_bbox=x_bbox, y_bbox=y_bbox):
-
-    x_init, y_init = get_init_point(action_sample)
 
     inter_count = 0
 
     for i in range(action.shape[1]):
         pass
+
+    return
+
+def plot_action(action_sample, init_pts=init_pts):
+
+    action_sample = action_sample.T
+
+    if action_sample[0] == 0:
+        if init_pts[header[1] * action_sample[0] + action_sample[1]] is not -np.ones(2):
+            x = [init_pts[header[1] * action_sample[0] + action_sample[1], 0], init_pts[header[1] * action_sample[0] + action_sample[1], 0]]
+            y = [init_pts[header[1] * action_sample[0] + action_sample[1], 1] - np.abs(action_sample[2]), init_pts[header[1] * action_sample[0] + action_sample[1], 1] - np.abs(action_sample[2]) - action_sample[3]]
+            # plt.plot(x, y)
+
+    elif action_sample[0] == header[0]/2:
+        if init_pts[header[1] * action_sample[0] + action_sample[1]] is not -np.ones(2):
+            x = [init_pts[header[1] * action_sample[0] + action_sample[1], 0] + np.abs(action_sample[2]), init_pts[header[1] * action_sample[0] + action_sample[1], 0] + np.abs(action_sample[2]) + action_sample[3]]
+            y = [init_pts[header[1] * action_sample[0] + action_sample[1], 1], init_pts[header[1] * action_sample[0] + action_sample[1], 1]]
+            # plt.plot(x, y)
+
+    else:
+        if init_pts[header[1] * action_sample[0] + action_sample[1]] is not -np.ones(2):
+            x = [init_pts[header[1] * action_sample[0] + action_sample[1], 0] + np.cos(deg2rad(action_sample[0] * 180 / header[0])) * np.abs(action_sample[2]), init_pts[header[1] * action_sample[0] + action_sample[1], 0] + np.cos(deg2rad(action_sample[0] * 180 / header[0])) * (np.abs(action_sample[2] + action_sample[3]))]
+            y = [init_pts[header[1] * action_sample[0] + action_sample[1], 1] + np.sin(deg2rad(action_sample[0] * 180 / header[0])) * np.abs(action_sample[2]), init_pts[header[1] * action_sample[0] + action_sample[1], 1] + np.sin(deg2rad(action_sample[0] * 180 / header[0])) * (np.abs(action_sample[2] + action_sample[3]))]
+            # plt.plot(x, y)
 
     return
 
@@ -112,8 +178,6 @@ class PathPlanningNN(BaseFeaturesExtractor):
 
         return output
 
-
-
 class PathPlanningEnv(Env):
 
     def __init__(self):
@@ -124,17 +188,21 @@ class PathPlanningEnv(Env):
         self.observation_space = Box(low=min_len, high=max_len, shape=(input_data.shape))
 
         self.observation = input_data
+        
+        self.current_action = None
 
         self.Nstep = 1000
 
     def step(self, action):
 
-        print(self.Nstep)
+        # print(self.Nstep)
 
         action[0, :] = np.floor(action[0, :] * header[0]/2 * 0.999 + header[0]/2).astype(int)
         action[1, :] = np.floor(action[1, :] * header[1]/2 * 0.999 + header[1]/2).astype(int)
         action[2, :] = action[2, :] * max_sw_len/2 - max_sw_len/2
         action[3, :] = action[3, :] * max_len/2 + max_len/2
+
+        self.current_action = action
 
         # print(action[:, 0:5])
 
@@ -142,6 +210,8 @@ class PathPlanningEnv(Env):
 
         reward = 0
         reward_time = 0
+
+        terminated = False
         
         truncated = False
 
@@ -157,61 +227,102 @@ class PathPlanningEnv(Env):
             
             row = int(action[0, i] * header[0] + action[1, i])
 
-            if not np.all(data[row, :] == 0):
+            # if not np.all(data[row, :] == 0):
 
-                if np.abs(action[2, i]) <= np.sum(np.abs(data[row, :])):
+            if np.abs(action[2, i]) <= np.sum(np.abs(data[row, :])):
 
-                    cont = 0
+                cont = 0
 
-                    for j in np.where(data[row, :] > 0)[0]:
+                for j in np.where(data[row, :] > 0)[0]:
 
-                        if np.sum(np.abs(data[row, j if j == 0 else slice(0, j)])) <= np.abs(action[2, i]) and np.sum(np.abs(data[row, 0:(j+1)])) >= np.abs(action[2, i]) + np.abs(action[3, i]):
-                            # reward += k_cov * (1 - np.abs((1 - fp_width * action[3, i] / area)))
-                            # reward += k_cov * np.exp(- (1 - fp_width * action[3, i] / area)**2)
-                            reward += fp_width * action[3, i] / area
-                            reward_time += segmentTime(action[3, i])
-                        
-                        else:
-                            cont += 1
+                    if np.sum(np.abs(data[row, j if j == 0 else slice(0, j)])) <= np.abs(action[2, i]) and np.sum(np.abs(data[row, 0:(j+1)])) >= np.abs(action[2, i]) + np.abs(action[3, i]):
+                        # reward += k_cov * (1 - np.abs((1 - fp_width * action[3, i] / area)))
+                        # reward += k_cov * np.exp(- (1 - fp_width * action[3, i] / area)**2)
+                        # reward += fp_width * action[3, i] / area
+                        reward += 10 * k_cov
+                        reward_time += segmentTime(action[3, i])
                     
-                    if cont == np.where(data[row, :] > 0)[0].shape[0]:
-                        reward += -k_cov
+                    else:
+                        cont += 1
                 
-                else:
-                    reward += -5 * k_cov
+                if cont == np.where(data[row, :] > 0)[0].shape[0]:
+                    reward += -k_cov
             
             else:
-                reward += -10 * k_cov
+                reward += -2*k_cov
+            
+            # else:
+            #     reward += -10 * k_cov
         
         
-        reward = k_cov * (1 - np.abs((1 - reward)))
+        # reward = k_cov * (1 - np.abs((1 - reward)))
         reward_time = k_time * (min_time - reward_time)/min_time
-        reward += reward_time
+        # reward += reward_time
                         
         if self.Nstep == 0 or flag_stop == True:
             terminated = True
         else:
             terminated = False
         
-        print(reward)
+        # print(reward)
 
         return self.observation, reward, terminated, truncated, info
     
     def reset(self, *, seed = None, options = None):
         super().reset(seed=seed, options=options)
+
         self.observation = input_data
+
+        self.current_action = None
+
         self.Nstep = 1000
+
         info = {}
+
         return self.observation, info
 
-    def render(self):
-        pass
+    def render(self, mode="human", close=False):
+
+        img = cv2.imread("immagini/perimeters/per_1.png", cv2.IMREAD_GRAYSCALE)
+
+        bbox_center = [x_bbox/2, y_bbox/2]
+
+        img_scalefactor = int(1000/(1.2*np.max(x_bbox, y_bbox)))
+            
+        for i in range(self.current_action.shape[1]):
+            if self.current_action[0, i] == 0:
+                if init_pts[header[1] * self.current_action[0, i] + self.current_action[1, i]] is not -np.ones(2):
+                    x = [init_pts[header[1] * self.current_action[0, i] + self.current_action[1, i], 0], init_pts[header[1] * self.current_action[0, i] + self.current_action[1, i], 0]]
+                    y = [init_pts[header[1] * self.current_action[0, i] + self.current_action[1, i], 1] - np.abs(self.current_action[2, i]), init_pts[header[1] * self.current_action[0, i] + self.current_action[1, i], 1] - np.abs(self.current_action[2, i]) - self.current_action[3, i]]
+                    x_img = int(img_scalefactor * (x + (500/img_scalefactor - bbox_center[0])))
+                    y_img = 1000 - int(img_scalefactor * (y + (500/img_scalefactor - bbox_center[1])))
+                    cv2.line(img, tuple(x_img[0], y_img[0]), tuple(x_img[1], y_img[1]), color=128, thickness=2)
+
+            elif self.current_action[0, i] == header[0]/2:
+                if init_pts[header[1] * self.current_action[0, i] + self.current_action[1, i]] is not -np.ones(2):
+                    x = [init_pts[header[1] * self.current_action[0, i] + self.current_action[1, i], 0] + np.abs(self.current_action[2, i]), init_pts[header[1] * self.current_action[0, i] + self.current_action[1, i], 0] + np.abs(self.current_action[2, i]) + self.current_action[3, i]]
+                    y = [init_pts[header[1] * self.current_action[0, i] + self.current_action[1, i], 1], init_pts[header[1] * self.current_action[0, i] + self.current_action[1, i], 1]]
+                    x_img = int(img_scalefactor * (x + (500/img_scalefactor - bbox_center[0])))
+                    y_img = 1000 - int(img_scalefactor * (y + (500/img_scalefactor - bbox_center[1])))
+                    cv2.line(img, tuple(x_img[0], y_img[0]), tuple(x_img[1], y_img[1]), color=128, thickness=2)
+
+            else:
+                if init_pts[header[1] * self.current_action[0, i] + self.current_action[1, i]] is not -np.ones(2):
+                    x = [init_pts[header[1] * self.current_action[0, i] + self.current_action[1, i], 0] + np.cos(deg2rad(self.current_action[0, i] * 180 / header[0])) * np.abs(self.current_action[2, i]), init_pts[header[1] * self.current_action[0, i] + self.current_action[1, i], 0] + np.cos(deg2rad(self.current_action[0, i] * 180 / header[0])) * (np.abs(self.current_action[2, i] + self.current_action[3, i]))]
+                    y = [init_pts[header[1] * self.current_action[0, i] + self.current_action[1, i], 1] + np.sin(deg2rad(self.current_action[0, i] * 180 / header[0])) * np.abs(self.current_action[2, i]), init_pts[header[1] * self.current_action[0, i] + self.current_action[1, i], 1] + np.sin(deg2rad(self.current_action[0, i] * 180 / header[0])) * (np.abs(self.current_action[2, i] + self.current_action[3, i]))]
+                    x_img = int(img_scalefactor * (x + (500/img_scalefactor - bbox_center[0])))
+                    y_img = 1000 - int(img_scalefactor * (y + (500/img_scalefactor - bbox_center[1])))
+                    cv2.line(img, tuple(x_img[0], y_img[0]), tuple(x_img[1], y_img[1]), color=128, thickness=2)
+        
+        cv2.imshow("Action", img)
+        cv2.destroyAllWindows()
+
 
 policy_kwargs = dict(
-    activation_fn= nn.Tanh,
-    #net_arch = dict(pi=[400, 300], qf=[400, 300]),
-    features_extractor_class=PathPlanningNN,
-    features_extractor_kwargs=dict(features_dim=512),
+    # activation_fn= nn.Tanh,
+    net_arch = [1500, 1500],
+    # features_extractor_class=PathPlanningNN,
+    # features_extractor_kwargs=dict(features_dim=512),
 )
 
 env = DummyVecEnv([lambda: PathPlanningEnv()])
@@ -231,18 +342,32 @@ env = DummyVecEnv([lambda: PathPlanningEnv()])
 # con output = 4000: massimo buffer_size = 10000
 model = SAC("MlpPolicy",
             env,
-            #policy_kwargs=policy_kwargs,
+            policy_kwargs=policy_kwargs,
             verbose=1,
             buffer_size=10000,
             #batch_size=128,
             #learning_starts=200,
-            #tensorboard_log= "Training/tensorboard_log/",
+            tensorboard_log= "Training/tensorboard_log/",
 )
 
 model.learn(total_timesteps=10000,
             progress_bar=True,
 )
 
-del model
+model.save("Training/saved_models/SAC/SAC_10k")
+
+# del model
+
+# model = SAC.load("Training/saved_models/SAC/SAC_10k.zip")
+
+# episodes = 2
+# for episode in range(1, episodes+1):
+#     obs = env.reset()
+#     terminated = False
+
+#     while not terminated:
+#         action, _ = model.predict(obs)
+#         obs, reward, terminated, truncated, *info = env.step(action)
+#         env.render(mode="human")
 
 env.close()
