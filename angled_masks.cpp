@@ -42,7 +42,8 @@ typedef model::linestring<point_2d> linestring_2d;
 typedef model::polygon<point_2d> polygon_2d;
 typedef model::box<point_2d> box_2d;
 
-const std::vector<std::string> perimeters = {"1", "3", "4", "39", "45"};
+//const std::vector<std::string> perimeters = {"1", "3", "4", "39", "45"};
+const std::vector<std::string> perimeters = {"square", "rect", "triangle", "L"};
 //const std::vector<std::string> perimeters = {"1"};
 
 std::string n_per;
@@ -51,7 +52,7 @@ const bool flag_save_summask = false;
 const bool flag_save_angledmask = false;
 
 const double angle_tot = 180;       // [degrees]
-const double angle_step = 10;       // [degrees]
+const double angle_step = 30;       // [degrees]
 
 const double sweepline_step = 0.5;  // [m]
 const double acc = 0.2;             // [m/s^2]
@@ -80,8 +81,6 @@ void create_polygon(polygon_2d& polygon){
         n_holes++;
     }while(file_hole);
     file_hole.close();
-
-    //std::cout << n_holes << std::endl;
 
     std::vector<double> tmp;
     std::string row;
@@ -114,7 +113,6 @@ void create_polygon(polygon_2d& polygon){
         tmp.clear();
         row.clear();
         file_hole.open("../dataset_perimetri/" + n_per + "/buco_" + std::to_string(i) + ".txt", std::ios::in);
-        //model::ring<point_2d>& inner = polygon.inners().back();
         model::ring<point_2d>& inner = interior_rings(polygon)[i];
         while(std::getline(file_hole, row)){
 
@@ -134,7 +132,6 @@ void create_polygon(polygon_2d& polygon){
                 x1 = tmp[j];
             }
             else{
-                //append(inner, make<point_2d>(x1, tmp[j]));
                 inner.push_back(make<point_2d>(x1, tmp[j]));
             }
         }
@@ -158,8 +155,6 @@ void save_perimeter(const polygon_2d& polygon, const polygon_2d& bbox_poly){
     const double min_y = *std::min_element(y_poly.begin(), y_poly.end());
 
     point_2d bbox_center((max_x + min_x)/2, (max_y + min_y)/2);
-    //std::cout << (max_x + min_x)/2 << '\t' << (max_y + min_y)/2 << std::endl;
-    //point_2d bbox_center(500, 500);
     double bbox_dims[] = {(max_x - min_x), (max_y - min_y)};
 
     const int img_scalefactor = std::round(1000/(1.2*(int)std::max(max_x - min_x, max_y - min_y)));
@@ -169,26 +164,26 @@ void save_perimeter(const polygon_2d& polygon, const polygon_2d& bbox_poly){
     cv::Mat gray_image(1000, 1000, CV_8UC1, cv::Scalar(0));
 
     for(int i = 0; i < exterior_ring(polygon).size() - 1; i++){
-        double start_x = img_scalefactor * (exterior_ring(polygon)[i].x() + (500/img_scalefactor - bbox_center.x()));
-        double start_y = 1000 - img_scalefactor * (exterior_ring(polygon)[i].y() + (500/img_scalefactor - bbox_center.y()));
-        double end_x = img_scalefactor * (exterior_ring(polygon)[i+1].x() + (500/img_scalefactor - bbox_center.x()));
-        double end_y = 1000 - img_scalefactor * (exterior_ring(polygon)[i+1].y() + (500/img_scalefactor - bbox_center.y()));
+        double start_x = img_scalefactor * (exterior_ring(polygon)[i].x() + (500./img_scalefactor - bbox_center.x()));
+        double start_y = 1000 - img_scalefactor * (exterior_ring(polygon)[i].y() + (500./img_scalefactor - bbox_center.y()));
+        double end_x = img_scalefactor * (exterior_ring(polygon)[i+1].x() + (500./img_scalefactor - bbox_center.x()));
+        double end_y = 1000 - img_scalefactor * (exterior_ring(polygon)[i+1].y() + (500./img_scalefactor - bbox_center.y()));
         cv::Point start(start_x, start_y);
         cv::Point end(end_x, end_y);
         cv::line(gray_image, start, end, cv::Scalar(255), 1);
     }
 
     for(int i = 0; i < exterior_ring(bbox_poly).size() - 1; i++){
-        double start_x = img_scalefactor * (exterior_ring(bbox_poly)[i].x() + (500/img_scalefactor - bbox_center.x()));
-        double start_y = 1000 - img_scalefactor * (exterior_ring(bbox_poly)[i].y() + (500/img_scalefactor - bbox_center.y()));
-        double end_x = img_scalefactor * (exterior_ring(bbox_poly)[i+1].x() + (500/img_scalefactor - bbox_center.x()));
-        double end_y = 1000 - img_scalefactor * (exterior_ring(bbox_poly)[i+1].y() + (500/img_scalefactor - bbox_center.y()));
+        double start_x = img_scalefactor * (exterior_ring(bbox_poly)[i].x() + (500./img_scalefactor - bbox_center.x()));
+        double start_y = 1000 - img_scalefactor * (exterior_ring(bbox_poly)[i].y() + (500./img_scalefactor - bbox_center.y()));
+        double end_x = img_scalefactor * (exterior_ring(bbox_poly)[i+1].x() + (500./img_scalefactor - bbox_center.x()));
+        double end_y = 1000 - img_scalefactor * (exterior_ring(bbox_poly)[i+1].y() + (500./img_scalefactor - bbox_center.y()));
         cv::Point start(start_x, start_y);
         cv::Point end(end_x, end_y);
         cv::line(gray_image, start, end, cv::Scalar(255), 1);
     }
 
-    cv::imshow("prova", gray_image);
+    //cv::imshow("prova", gray_image);
     cv::imwrite("immagini/perimeters/per_" + n_per + ".png", gray_image);
 }
 
@@ -275,10 +270,11 @@ void visualize_rotated_masks(const polygon_2d& polygon, const polygon_2d& bbox_p
         cv::Point end(end_x, end_y);
         cv::line(gray_image, start, end, cv::Scalar(100), 1);
     }
-
+    
     std::vector<std::vector<double>> sweep_distances;
     for(int i = 0; i < sweeplines.size(); i++){
         std::vector<double> tmp_dist;
+        //std::cout << sweeplines[i].size() << std::endl;
         for(int j = 0; j < sweeplines[i].size(); j++){
             tmp_dist.push_back(distance(sweeplines[i][j].front(), sweeplines[i][j].back()));
         }
@@ -459,9 +455,9 @@ void write_vertical_lines(const polygon_2d& poly, const polygon_2d& bbox_poly, s
     }*/
 
     const double max_x = *std::max_element(x_poly.begin(), x_poly.end());
-    const double max_y = *std::max_element(y_poly.begin(), y_poly.end()) * 1.2;
+    const double max_y = *std::max_element(y_poly.begin(), y_poly.end()) + 2;
     const double min_x = *std::min_element(x_poly.begin(), x_poly.end());
-    const double min_y = *std::min_element(y_poly.begin(), y_poly.end()) * 0.8;
+    const double min_y = *std::min_element(y_poly.begin(), y_poly.end()) - 2;
 
     for(int i = 0; i < (int)((max_x - min_x)/sweepline_step); i++){
     //for(int i = 120; i < 128; i++){
@@ -476,20 +472,22 @@ void write_vertical_lines(const polygon_2d& poly, const polygon_2d& bbox_poly, s
         intersection(poly, sweepline, inter);
         order_ydec(inter);
 
-        //std::cout << "[" << i << "]:\t" << inter.size() << std::endl;
+        //std::cout << "[" << i << "]:\t" << dsv(inter) << std::endl;
 
         if(inter.size() % 2 != 0 && inter.size() != 0) inter.pop_back();
 
         point_2d midpt_prec;
-        if(inter.size() != 0) midpt_prec = make<point_2d>((inter[0].x() + inter[1].x())/2, (inter[0].y() + inter[1].y())/2);
-        for(int j = 1; j < inter.size() == 0 ? 0 : inter.size() - 1; j++){
-            point_2d midpt((inter[j].x() + inter[j+1].x())/2, (inter[j].y() + inter[j+1].y())/2);
-            if(within(midpt, poly) && within(midpt_prec, poly)){
-                inter.erase(inter.begin() + j);
-                j--;
-                //break;
+        if(inter.size() != 0){
+            midpt_prec = make<point_2d>((inter[0].x() + inter[1].x())/2, (inter[0].y() + inter[1].y())/2);
+            for(int j = 1; j < inter.size() - 1; j++){
+                point_2d midpt((inter[j].x() + inter[j+1].x())/2, (inter[j].y() + inter[j+1].y())/2);
+                if(within(midpt, poly) && within(midpt_prec, poly)){
+                    inter.erase(inter.begin() + j);
+                    j--;
+                    //break;
+                }
+                midpt_prec = midpt;
             }
-            midpt_prec = midpt;
         }
 
         /*for(int j = 0; j < inter.size(); j++){
@@ -510,7 +508,7 @@ void write_vertical_lines(const polygon_2d& poly, const polygon_2d& bbox_poly, s
         append(inter, inter_bbox);
         order_ydec(inter);
 
-        //std::cout << "[" << i << "]:\t" << inter.size() << std::endl;
+        //std::cout << "[" << i << "]:\t" << dsv(inter) << std::endl;
 
         //if(inter.size() % 2 == 0){
             for(int j = 0; j < inter.size()-1; j++){
@@ -553,9 +551,11 @@ int main(void){
     std::vector<std::vector<std::vector<std::vector<double>>>> all_distances;
     std::vector<double> areas;
     std::vector<double> min_times;
+    std::vector<double> y_bboxs;
+    std::vector<double> x_bboxs;
 
     for(int a = 0; a < perimeters.size(); a++){
-    //int a = 0;{
+    //int a = 2;{
 
         n_per = perimeters[a];
 
@@ -580,6 +580,9 @@ int main(void){
         bbox_poly.outer().push_back(bbox.max_corner());
         bbox_poly.outer().push_back(make<point_2d>(bbox.min_corner().x(), bbox.max_corner().y()));
         correct(bbox_poly);
+
+        y_bboxs.push_back(distance(exterior_ring(bbox_poly)[0], exterior_ring(bbox_poly)[1]));
+        x_bboxs.push_back(distance(exterior_ring(bbox_poly)[1], exterior_ring(bbox_poly)[2]));
 
         //save_perimeter(polygon, bbox_poly);
 
@@ -691,19 +694,27 @@ int main(void){
     for(int a = 0; a < all_distances.size(); a++){
 
         n_per = perimeters[a];
-        std::ofstream file("sw_input_logs/input_per_" + n_per + ".txt", std::ios::out);
+        std::ofstream file("sw_input_logs/input_per_" + n_per + "_anglestep" + std::to_string((int)angle_step) + "°.txt", std::ios::out);
 
-        //file << std::to_string(all_distances.size());
         file << std::to_string((int)(angle_tot / angle_step));
         file << '\t' + std::to_string(max_sw);
         file << '\t' + std::to_string(max_trunc);
         file << '\t' + std::to_string(min_times[a]);
         file << '\t' + std::to_string(areas[a]);
+        file << '\t' + std::to_string(y_bboxs[a]);
+        file << '\t' + std::to_string(x_bboxs[a]);
         file << std::endl;
 
+        std::cout << (int)(angle_tot / angle_step);
+        std::cout << '\t' << max_sw;
+        std::cout << '\t' << max_trunc;
+        std::cout << '\t' << min_times[a];
+        std::cout << '\t' << areas[a];
+        std::cout << '\t' << y_bboxs[a];
+        std::cout << '\t' << x_bboxs[a];
+        std::cout << std::endl;
 
         for(int i = 0; i < all_distances[a].size(); i++){
-            //file << i << std::endl << std::endl;
             for(int j = 0; j < all_distances[a][i].size(); j++){
                 for(int k = 0; k < all_distances[a][i][j].size(); k++){
                     if(k == 0){
@@ -715,7 +726,6 @@ int main(void){
                 }
                 file << std::endl;
             }
-            //file << std::endl << std::endl << std::endl;
         }
     }
 
