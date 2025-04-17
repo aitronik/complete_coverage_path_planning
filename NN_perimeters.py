@@ -17,6 +17,8 @@ from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.utils import update_learning_rate
 
+from sb3_contrib import TQC
+
 acc = 0.2
 dec = 0.2
 vmax = 0.55
@@ -49,7 +51,7 @@ def segmentTime(l, a=acc, d=dec, vmax=vmax):
 def deg2rad(alpha):
     return alpha * np.pi / 180
 
-with open("sw_input_logs/input_per_" + n_per + "_anglestep" + angle_step + "°.txt", "r") as f:
+with open("sw_input_logs/input_per_" + n_per + "_anglestep" + angle_step + "°_onlymask0°.txt", "r") as f:
     header = list(map(float, f.readline().strip().split("\t")))
 
 x_bbox = header.pop()
@@ -58,7 +60,7 @@ area = header.pop()
 min_time = header.pop()
 header = np.array(header).astype(int)
 
-data = np.genfromtxt("sw_input_logs/input_per_" + n_per + "_anglestep" + angle_step + "°.txt", delimiter='\t', skip_header=1)
+data = np.genfromtxt("sw_input_logs/input_per_" + n_per + "_anglestep" + angle_step + "°_onlymask0°.txt", delimiter='\t', skip_header=1)
 
 # y_bbox = np.mean(np.sum(np.abs(data[0:header[1], :]), axis=1)[np.sum(np.abs(data[0:header[1], :]), axis=1) != 0])
 # x_bbox = np.mean(np.sum(np.abs(data[int(header[0]*header[1]/2):int(header[0]*header[1]/2 + header[1]), :]), axis=1)[np.sum(np.abs(data[int(header[0]*header[1]/2):int(header[0]*header[1]/2 + header[1]), :]), axis=1) != 0])
@@ -107,7 +109,7 @@ for i in range(header[0]):
 
                 else:
                     init_pts[header[1] * i + j, :] = np.array([0, np.tan(deg2rad(i * 180 / header[0]) - np.pi/2) * ((fp_width/2 + j * fp_width)/np.cos(np.pi - deg2rad(i * 180 / header[0])) - x_bbox)])
-                        
+
 def check_intersections(action):
 
     cont = 0
@@ -174,7 +176,7 @@ def check_intersections(action):
                     # plot_action(action)
                     cont += 1
 
-    plot_action(action)
+    # plot_action(action)
     return cont
                 
 
@@ -336,13 +338,13 @@ class PathPlanningEnv(Env):
                 if cont == np.where(data[row, :] > 0)[0].shape[0]:
                     reward += -k_cov
             
-            else:
-                reward += -2*k_cov        
+            # else:
+            #     reward += -2*k_cov        
         
         # reward = k_cov * (1 - np.abs((1 - reward)))
         reward_time = k_time * (min_time - reward_time)/min_time
         # reward += reward_time
-        # reward += -check_intersections(action)
+        reward += -check_intersections(action)
 
         # print(goodacts)
 
@@ -392,16 +394,30 @@ class CustomSAC(SAC):
         update_learning_rate(actor_opt, self.actor_lr)
         update_learning_rate(critic_opt, self.critic_lr)
 
+class CustomTQC(TQC):
+
+    def __init__(self, policy, env, *args, actor_lr=3e-4, critic_lr=3e-4, **kwargs):
+        super().__init__(policy, env, *args, **kwargs)
+        self.actor_lr = actor_lr
+        self.critic_lr = critic_lr
+    
+    def _update_learning_rate(self, optimizers):
+        
+        actor_opt, critic_opt, _ = optimizers
+
+        update_learning_rate(actor_opt, self.actor_lr)
+        update_learning_rate(critic_opt, self.critic_lr)
+
 policy_kwargs = dict(
     # activation_fn= nn.Tanh,
-    net_arch = [400, 200, 100],
+    net_arch = dict(pi=[400, 200, 100], qf=[40, 20, 10]),
     # features_extractor_class=PathPlanningNN,
     # features_extractor_kwargs=dict(features_dim=512),
 )
 
-# env = DummyVecEnv([lambda: PathPlanningEnv()])
-env = PathPlanningEnv()
-env = Monitor(env)
+env = DummyVecEnv([lambda: PathPlanningEnv()])
+# env = PathPlanningEnv()
+# env = Monitor(env)
 
 # model = SAC("MlpPolicy",
 #             env,
@@ -410,74 +426,92 @@ env = Monitor(env)
 #             #buffer_size=10000,
 #             #batch_size=128,
 #             #learning_starts=200,
-#             #tensorboard_log= "Training/tensorboard_log/",
+#             #tensorboard_log= "Training/tensorboard_log/SAC/",
 # )
 
 
-model = CustomSAC("MlpPolicy",
-                  env,
-                  actor_lr=1e-4,
-                  critic_lr=3e-4,
-                  policy_kwargs=policy_kwargs,
-                  verbose=1,
-                  #buffer_size=10000,
-                  #batch_size=128,
-                  #learning_starts=200,
-                #   tensorboard_log= "Training/tensorboard_log/",
-)
+# model = CustomSAC("MlpPolicy",
+#                   env,
+#                   actor_lr=1e-4,
+#                   critic_lr=3e-4,
+#                   policy_kwargs=policy_kwargs,
+#                   verbose=1,
+#                   tensorboard_log= "Training/tensorboard_log/SAC/",
+# )
 
-model.learn(total_timesteps=100000,
-            progress_bar=True,
-)
+# model = TQC("MlpPolicy",
+#             env,
+#             verbose=1,
+#             policy_kwargs=policy_kwargs,
+#             learning_rate=0.001,
+#             tensorboard_log="Training/tensorboard_log/TQC/",
+# )
+
+# model = CustomTQC("MlpPolicy",
+#                   env,
+#                   actor_lr=1e-4,
+#                   critic_lr=3e-4,
+#                   policy_kwargs=policy_kwargs,
+#                   verbose=1,
+#                   tensorboard_log= "Training/tensorboard_log/TQC/",
+# )
+
+# model.learn(total_timesteps=500000,
+#             progress_bar=True,
+# )
 
 # print(all_goodacts.T)
 # print(all_goodacts.shape)
-plot_action(all_goodacts)
+# plot_action(all_goodacts)
 
 
 # with open("Training/logs/all_goodacts.txt", "w") as f:
 #     for riga in all_goodacts.T:
 #         f.write(" ".join(map(str, riga)) + "\n")
 
-# model.save("Training/saved_models/SAC/SAC_10k_netarch1500")
+# model.save("Training/saved_models/SAC/SAC_500k_per_" + n_per + "_anglestep" + angle_step + "°_actor_lr_1e-4_critic_lr_3e-4_interhandling_smallcriticnet.zip")
+
+# model.save("Training/saved_models/TQC/TQC_100k_per_" + n_per + "_anglestep" + angle_step + "°_actor_lr_1e-4_critic_lr_3e-4_interhandling_smallcriticnet.zip")
 
 # del model
 
-# model = SAC.load("Training/saved_models/SAC/SAC_100k_per_triangle_anglestep30°_lr_1e-4.zip")
+model = SAC.load("Training/saved_models/SAC/SAC_100k_per_triangle_anglestep30°_actor_lr_1e-3_critic_lr_3e-3_interhandling_onlymask0°.zip")
 
-# episodes = 3
-# for episode in range(1, episodes+1):
+# model = TQC.load("Training/saved_models/TQC/TQC_100k_per_rotated_square_anglestep30°_lr_1e-3_interhandling_onlymask0°.zip")
+
+episodes = 3
+for episode in range(1, episodes+1):
     
-#     best_state = env.reset()
+    best_state = np.zeros([1, 3, 20])
 
-#     obs = env.reset()
+    obs = env.reset()
 
-#     terminated = False
+    terminated = False
 
-#     best_reward = 0
+    best_reward = -1e6
 
-#     good_actions = []
+    good_actions = []
 
-#     while not terminated:
-#         action, _ = model.predict(obs)             
-#         obs, reward, terminated, truncated, *info = env.step(action)
-#         if reward > best_reward:
-#             best_reward = reward
-#             best_state = action
-#         # action = action.squeeze(0)
-#         # for i in range(action.shape[1]):
-#         #     row = int(action[0, i])
-#         #     if np.sum(np.abs(data[row, j if j == 0 else slice(0, j)])) <= np.abs(action[1, i]) and np.sum(np.abs(data[row, 0:(j+1)])) >= np.abs(action[1, i]) + np.abs(action[2, i]):
-#         #         good_actions = good_actions.append(action[row, :])
-#         #         print(i)
-#     print(best_reward)    
-#     plot_action(best_state.squeeze(0), episode)
+    while not terminated:
+        action, _ = model.predict(obs)             
+        obs, reward, terminated, truncated, *info = env.step(action)
+        if reward > best_reward:
+            best_reward = reward
+            best_state = action
+        # action = action.squeeze(0)
+        # for i in range(action.shape[1]):
+        #     row = int(action[0, i])
+        #     if np.sum(np.abs(data[row, j if j == 0 else slice(0, j)])) <= np.abs(action[1, i]) and np.sum(np.abs(data[row, 0:(j+1)])) >= np.abs(action[1, i]) + np.abs(action[2, i]):
+        #         good_actions = good_actions.append(action[row, :])
+        #         print(i)
+    print(best_reward)
+    plot_action(best_state.squeeze(0), episode)
 
 #     with open("Training/logs/bestact_" + str(episode) + ".txt", "w") as f:
 #         for riga in best_state.squeeze(0).T:
 #             f.write(" ".join(map(str, riga)) + "\n")
 
-# plot_action(np.array([[45], [-2], [2]]))
+# plot_action(np.array([[0], [0], [5]]))
 
 # bestact = np.genfromtxt("Training/logs/bestact_1.txt", delimiter=" ")
 # plot_action(bestact.T)

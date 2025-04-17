@@ -42,9 +42,9 @@ typedef model::linestring<point_2d> linestring_2d;
 typedef model::polygon<point_2d> polygon_2d;
 typedef model::box<point_2d> box_2d;
 
-//const std::vector<std::string> perimeters = {"1", "3", "4", "39", "45"};
-const std::vector<std::string> perimeters = {"square", "rect", "triangle", "L"};
-//const std::vector<std::string> perimeters = {"1"};
+const std::vector<std::string> perimeters = {"1", "3", "4", "39", "45"};
+// const std::vector<std::string> perimeters = {"square", "rect", "triangle", "L", "rotated_square"};
+// const std::vector<std::string> perimeters = {"triangle"};
 
 std::string n_per;
 
@@ -172,6 +172,18 @@ void save_perimeter(const polygon_2d& polygon, const polygon_2d& bbox_poly){
         cv::Point end(end_x, end_y);
         cv::line(gray_image, start, end, cv::Scalar(255), 1);
     }
+    
+    for(int j = 0; j < polygon.inners().size(); j++){
+        for(int i = 0; i < interior_rings(polygon)[j].size() - 1; i++){
+            double start_x = img_scalefactor * (interior_rings(polygon)[j][i].x() + (500./img_scalefactor - bbox_center.x()));
+            double start_y = 1000 - img_scalefactor * (interior_rings(polygon)[j][i].y() + (500./img_scalefactor - bbox_center.y()));
+            double end_x = img_scalefactor * (interior_rings(polygon)[j][i+1].x() + (500./img_scalefactor - bbox_center.x()));
+            double end_y = 1000 - img_scalefactor * (interior_rings(polygon)[j][i+1].y() + (500./img_scalefactor - bbox_center.y()));
+            cv::Point start(start_x, start_y);
+            cv::Point end(end_x, end_y);
+            cv::line(gray_image, start, end, cv::Scalar(255), 1);
+        }
+    }
 
     for(int i = 0; i < exterior_ring(bbox_poly).size() - 1; i++){
         double start_x = img_scalefactor * (exterior_ring(bbox_poly)[i].x() + (500./img_scalefactor - bbox_center.x()));
@@ -246,7 +258,7 @@ void visualize_rotated_masks(const polygon_2d& polygon, const polygon_2d& bbox_p
         double end_y = (int)(1.2 * img_scalefactor * bbox_dims[1]) - img_scalefactor * (exterior_ring(polygon)[i+1].y() + (1.2*bbox_dims[1]/2 - bbox_center.y()));
         cv::Point start(start_x, start_y);
         cv::Point end(end_x, end_y);
-        cv::line(gray_image, start, end, cv::Scalar(170), 1);
+        //cv::line(gray_image, start, end, cv::Scalar(170), 1);
     }
 
     for(int j = 0; j < polygon.inners().size(); j++){
@@ -257,7 +269,7 @@ void visualize_rotated_masks(const polygon_2d& polygon, const polygon_2d& bbox_p
             double end_y = (int)(1.2 * img_scalefactor * bbox_dims[1]) - img_scalefactor * (interior_rings(polygon)[j][i+1].y() + (1.2*bbox_dims[1]/2 - bbox_center.y()));
             cv::Point start(start_x, start_y);
             cv::Point end(end_x, end_y);
-            cv::line(gray_image, start, end, cv::Scalar(170), 1);
+            //cv::line(gray_image, start, end, cv::Scalar(170), 1);
         }
     }
 
@@ -268,7 +280,7 @@ void visualize_rotated_masks(const polygon_2d& polygon, const polygon_2d& bbox_p
         double end_y = (int)(1.2 * img_scalefactor * bbox_dims[1]) - img_scalefactor * (exterior_ring(bbox_poly)[i+1].y() + (1.2*bbox_dims[1]/2 - bbox_center.y()));
         cv::Point start(start_x, start_y);
         cv::Point end(end_x, end_y);
-        cv::line(gray_image, start, end, cv::Scalar(100), 1);
+        //cv::line(gray_image, start, end, cv::Scalar(100), 1);
     }
     
     std::vector<std::vector<double>> sweep_distances;
@@ -298,7 +310,14 @@ void visualize_rotated_masks(const polygon_2d& polygon, const polygon_2d& bbox_p
             double end_y = (int)(1.2 * img_scalefactor * bbox_dims[1]) - img_scalefactor * (sweeplines[i][j].back().y() + (1.2*bbox_dims[1]/2 - bbox_center.y()));
             cv::Point start(start_x, start_y);
             cv::Point end(end_x, end_y);
-            cv::line(gray_image, start, end, cv::Scalar((255 - 70) * distance(sweeplines[i][j].front(), sweeplines[i][j].back()) / max_dist + 70), (int)(sweepline_step * scale_img));
+            point_2d midpt(make<point_2d>((sweeplines[i][j].front().x() + sweeplines[i][j].back().x())/2, (sweeplines[i][j].front().y() + sweeplines[i][j].back().y())/2));
+            if(!within(midpt, polygon) && within(midpt, bbox_poly)){
+                cv::line(gray_image, start, end, cv::Scalar(255), (int)(sweepline_step * scale_img));
+            }
+            else if(within(midpt, polygon) && within(midpt, bbox_poly)){
+                cv::line(gray_image, start, end, cv::Scalar(128), (int)(sweepline_step * scale_img));
+            }
+            //cv::line(gray_image, start, end, cv::Scalar((255 - 70) * distance(sweeplines[i][j].front(), sweeplines[i][j].back()) / max_dist + 70), (int)(sweepline_step * scale_img));
         }
     }
 
@@ -308,11 +327,11 @@ void visualize_rotated_masks(const polygon_2d& polygon, const polygon_2d& bbox_p
     cv::applyColorMap(gray_image, heatmap, cv::COLORMAP_JET);
     //cv::putText(heatmap, std::to_string(cont), cv::Point(50, 50), cv::FONT_HERSHEY_SIMPLEX, 1.5, cv::Scalar(170, 170, 170), 3, 8, false);
     //cv::putText(heatmap, std::to_string((int)std::round(time)) + " s", cv::Point(175, 50), cv::FONT_HERSHEY_SIMPLEX, 1.5, cv::Scalar(170, 170, 170), 3, 8, false);
-    std::string string_fp_angledmask = "immagini/angledmasks/" + n_per + "/angledmask_" + std::to_string((int)(angle_step * index)) + "_nholes3.jpg";
+    std::string string_fp_angledmask = "immagini/angledmasks/" + n_per + "/angledmask_" + std::to_string((int)(angle_step * index)) + "_intext.jpg";
     if(flag_save_angledmask)
         cv::imwrite(string_fp_angledmask, heatmap);
     std::string name_fig = "Rotated poly of angle " + std::to_string((int)(angle_step * index)) + "°";
-    //cv::imshow(name_fig, heatmap);
+    // cv::imshow(name_fig, heatmap);
 }
 
 void visualize_sum_mask(const polygon_2d& polygon, const std::vector<std::vector<std::vector<linestring_2d>>>& all_sweeplines, const std::vector<double>& distances){
@@ -555,7 +574,7 @@ int main(void){
     std::vector<double> x_bboxs;
 
     for(int a = 0; a < perimeters.size(); a++){
-    //int a = 2;{
+    // int a = 0;{
 
         n_per = perimeters[a];
 
@@ -584,14 +603,14 @@ int main(void){
         y_bboxs.push_back(distance(exterior_ring(bbox_poly)[0], exterior_ring(bbox_poly)[1]));
         x_bboxs.push_back(distance(exterior_ring(bbox_poly)[1], exterior_ring(bbox_poly)[2]));
 
-        //save_perimeter(polygon, bbox_poly);
+        save_perimeter(polygon, bbox_poly);
 
         std::vector<std::vector<std::vector<linestring_2d>>> all_sweeplines;
         //std::vector<double> distances;
         std::vector<std::vector<std::vector<double>>> distances;
         //std::vector<linestring_2d> all_sweeplines;
         for(int i = 0; i < angle_tot / angle_step; i++){
-        //int i = 1;{
+        // int i = 3;{
             polygon_2d tmp_poly, tmp_bbox;
             //box_2d tmp_bbox;
             std::vector<std::vector<linestring_2d>> sweeplines;
@@ -676,58 +695,58 @@ int main(void){
         //visualize_sum_mask(polygon, all_sweeplines, distances);
     }
 
-    int max_sw = *std::max_element(max_sw_vec.begin(), max_sw_vec.end());
-    int max_trunc = *std::max_element(max_trunc_vec.begin(), max_trunc_vec.end());
+    // int max_sw = *std::max_element(max_sw_vec.begin(), max_sw_vec.end());
+    // int max_trunc = *std::max_element(max_trunc_vec.begin(), max_trunc_vec.end());
 
-    //all_distances.resize(perimeters.size(), (int)(angle_tot / angle_step), max_sw, max_trunc);
+    // //all_distances.resize(perimeters.size(), (int)(angle_tot / angle_step), max_sw, max_trunc);
 
-    for(int a = 0; a < all_distances.size(); a++){
-        for(int i = 0; i < all_distances[a].size(); i++){
-            for(int j = 0; j < all_distances[a][i].size(); j++){
-                all_distances[a][i][j].resize(max_trunc, 0);
-            }
-            //std::vector<double> tmp(max_trunc, 0);
-            all_distances[a][i].resize(max_sw, std::vector<double>(max_trunc, 0));
-        }
-    }
+    // for(int a = 0; a < all_distances.size(); a++){
+    //     for(int i = 0; i < all_distances[a].size(); i++){
+    //         for(int j = 0; j < all_distances[a][i].size(); j++){
+    //             all_distances[a][i][j].resize(max_trunc, 0);
+    //         }
+    //         //std::vector<double> tmp(max_trunc, 0);
+    //         all_distances[a][i].resize(max_sw, std::vector<double>(max_trunc, 0));
+    //     }
+    // }
 
-    for(int a = 0; a < all_distances.size(); a++){
+    // for(int a = 0; a < all_distances.size(); a++){
 
-        n_per = perimeters[a];
-        std::ofstream file("sw_input_logs/input_per_" + n_per + "_anglestep" + std::to_string((int)angle_step) + "°.txt", std::ios::out);
+    //     n_per = perimeters[a];
+    //     std::ofstream file("sw_input_logs/input_per_" + n_per + "_anglestep" + std::to_string((int)angle_step) + "°.txt", std::ios::out);
 
-        file << std::to_string((int)(angle_tot / angle_step));
-        file << '\t' + std::to_string(max_sw);
-        file << '\t' + std::to_string(max_trunc);
-        file << '\t' + std::to_string(min_times[a]);
-        file << '\t' + std::to_string(areas[a]);
-        file << '\t' + std::to_string(y_bboxs[a]);
-        file << '\t' + std::to_string(x_bboxs[a]);
-        file << std::endl;
+    //     file << std::to_string((int)(angle_tot / angle_step));
+    //     file << '\t' + std::to_string(max_sw);
+    //     file << '\t' + std::to_string(max_trunc);
+    //     file << '\t' + std::to_string(min_times[a]);
+    //     file << '\t' + std::to_string(areas[a]);
+    //     file << '\t' + std::to_string(y_bboxs[a]);
+    //     file << '\t' + std::to_string(x_bboxs[a]);
+    //     file << std::endl;
 
-        std::cout << (int)(angle_tot / angle_step);
-        std::cout << '\t' << max_sw;
-        std::cout << '\t' << max_trunc;
-        std::cout << '\t' << min_times[a];
-        std::cout << '\t' << areas[a];
-        std::cout << '\t' << y_bboxs[a];
-        std::cout << '\t' << x_bboxs[a];
-        std::cout << std::endl;
+    //     std::cout << (int)(angle_tot / angle_step);
+    //     std::cout << '\t' << max_sw;
+    //     std::cout << '\t' << max_trunc;
+    //     std::cout << '\t' << min_times[a];
+    //     std::cout << '\t' << areas[a];
+    //     std::cout << '\t' << y_bboxs[a];
+    //     std::cout << '\t' << x_bboxs[a];
+    //     std::cout << std::endl;
 
-        for(int i = 0; i < all_distances[a].size(); i++){
-            for(int j = 0; j < all_distances[a][i].size(); j++){
-                for(int k = 0; k < all_distances[a][i][j].size(); k++){
-                    if(k == 0){
-                        file << all_distances[a][i][j][k];
-                    }
-                    else{
-                        file << '\t' << all_distances[a][i][j][k];
-                    }
-                }
-                file << std::endl;
-            }
-        }
-    }
+    //     for(int i = 0; i < all_distances[a].size(); i++){
+    //         for(int j = 0; j < all_distances[a][i].size(); j++){
+    //             for(int k = 0; k < all_distances[a][i][j].size(); k++){
+    //                 if(k == 0){
+    //                     file << all_distances[a][i][j][k];
+    //                 }
+    //                 else{
+    //                     file << '\t' << all_distances[a][i][j][k];
+    //                 }
+    //             }
+    //             file << std::endl;
+    //         }
+    //     }
+    // }
 
 
     cv::waitKey(0);
