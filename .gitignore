@@ -5,3 +5,7 @@ BBox_DRL.py
 try.py
 visualize_perimeter.py
 sw_input_logs/
+tocsv_tensorboardlogs.py
+tocsv_stuff/
+prova.py
+videos_inference/

@@ -10,16 +10,21 @@ from gymnasium import Env
 from gymnasium.spaces import Discrete, Box, Dict, Tuple, MultiBinary, MultiDiscrete
 
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.env_checker import check_env
 
-from PIL import Image, ImageDraw
-import imageio.v2 as imageio
-import os
-import shutil
+from optimize_ppo import sample_ppo_params
 
-dimcells_x = 8
-dimcells_y = 12
+
+img = cv2.imread("immagini/aree_prova/prova_1.png", cv2.IMREAD_GRAYSCALE)
+freecells = np.count_nonzero(img == 255)
+coords = np.column_stack(np.where(img == 255))
+dimcells_y, dimcells_x = img.shape
+
+img = cv2.bitwise_not(img)
+# img = np.array(img)
+# img[img == 255] = 2
 
 def num2word(action = -1):
     if action == 0:
@@ -41,23 +46,88 @@ def print_map(map_state, action = -1):
     print("Action:\t", num2word(action))
     print(map_state)
 
+def set_map(map_type):
+
+    if map_type == "empty":
+
+        map_state = np.zeros((dimcells_y, dimcells_x))
+
+        freecells = dimcells_y*dimcells_x
+
+        init_y = 0
+        init_x = 0
+
+        return map_state, freecells, init_y, init_x
+    
+    elif map_type == "L":
+
+        map_state = np.zeros((dimcells_y, dimcells_x))
+        map_state[:7, 3:] = 2
+
+        freecells = dimcells_y*dimcells_x - 7*3
+
+        init_y = 0
+        init_x = 0
+
+        return map_state, freecells, init_y, init_x
+    
+    elif map_type == "triangle":
+
+        map_state = np.array([[0, 0, 0, 0, 0, 0],
+                                [0, 0, 0, 0, 0, 2],
+                                [0, 0, 0, 0, 0, 2],
+                                [0, 0, 0, 0, 2, 2],
+                                [0, 0, 0, 0, 2, 2],
+                                [0, 0, 0, 2, 2, 2],
+                                [0, 0, 0, 2, 2, 2],
+                                [0, 0, 2, 2, 2, 2],
+                                [0, 0, 2, 2, 2, 2],
+                                [0, 2, 2, 2, 2, 2]])
+        
+        freecells = dimcells_y*dimcells_x - (1 + 3 + 5 + 7 + 9)
+
+        init_y = 0
+        init_x = 0
+
+        return map_state, freecells, init_y, init_x
+    
+    elif map_type == "cross":
+
+        map_state = np.zeros((dimcells_y, dimcells_x))
+        map_state[:3, :2] = 2
+        map_state[7:, :2] = 2
+        map_state[7:, 4:] = 2
+        map_state[:3, 4:] = 2
+
+        freecells = dimcells_y*dimcells_x - 6*4
+
+        init_y = 3
+        init_x = 0
+
+        return map_state, freecells, init_y, init_x
+    
+    elif map_type == "hole":
+
+        map_state = np.zeros((dimcells_y, dimcells_x))
+        map_state[3:7, 2:4] = 2
+
+        freecells = dimcells_y*dimcells_x - 8
+
+        init_y = 0
+        init_x = 0
+
+        return map_state, freecells, init_y, init_x
+
 class GraphBasedPPEnv(Env):
 
     def __init__(self):
         super().__init__()
         
-        self.observation_space = MultiDiscrete(np.append(np.array([dimcells_y, dimcells_x, dimcells_y*dimcells_x]), 3*np.ones((dimcells_y, dimcells_x)).ravel()), start=np.append(np.array([0, 0, 1]), np.zeros((dimcells_y, dimcells_x)).ravel()))
+        self.observation_space = Box(low=0, high=255, shape=(1, dimcells_y, dimcells_x), dtype=np.uint8)
 
         self.action_space = Discrete(4)
 
-        self.map_state = np.zeros((dimcells_y, dimcells_x))
-        self.map_state[0, :] = 2
-        self.map_state[:, 0] = 2
-        self.map_state[dimcells_y - 1, :] = 2
-        self.map_state[:, dimcells_x - 1] = 2
-
-        freecells = np.count_nonzero(self.map_state == 0)
-        coords = np.column_stack(np.where(self.map_state == 0))
+        self.map_state = img
 
         self.freecells = freecells
 
@@ -73,7 +143,7 @@ class GraphBasedPPEnv(Env):
 
         self.previous_action = -1
 
-        self.full_state = np.append(np.append(self.position, self.visited_cells), self.map_state.ravel())
+        # self.full_state = np.append(np.append(self.position, self.visited_cells), self.map_state.ravel())
 
         self.Nstep = 0
 
@@ -84,6 +154,8 @@ class GraphBasedPPEnv(Env):
         # 2 = south
         # 3 = west
 
+        self.map_state = self.map_state[0]
+
         reward = 0
 
         terminated = False
@@ -92,14 +164,14 @@ class GraphBasedPPEnv(Env):
 
         self.Nstep += 1
 
-        # reward -= 0.1 * self.Nstep
         reward -= 0.1
 
         if action == 0:
 
             if self.position[0] < dimcells_y - 1:
 
-                if self.map_state[self.position[0] + 1, self.position[1]] != 2:
+                # print(self.position[1])
+                if self.map_state[self.position[0] + 1, self.position[1]] != 255:
                     # moving on a free cell
                     self.position[0] += 1
                     reward += 0.01
@@ -120,7 +192,7 @@ class GraphBasedPPEnv(Env):
 
             if self.position[1] < dimcells_x - 1:
 
-                if self.map_state[self.position[0], self.position[1] + 1] != 2:
+                if self.map_state[self.position[0], self.position[1] + 1] != 255:
                     # moving on a free cell
                     self.position[1] += 1
                     reward += 0.01
@@ -141,7 +213,7 @@ class GraphBasedPPEnv(Env):
 
             if self.position[0] > 0:
 
-                if self.map_state[self.position[0] - 1, self.position[1]] != 2:
+                if self.map_state[self.position[0] - 1, self.position[1]] != 255:
                     # moving on a free cell
                     self.position[0] -= 1
                     reward += 0.01
@@ -162,7 +234,7 @@ class GraphBasedPPEnv(Env):
 
             if self.position[1] > 0:
 
-                if self.map_state[self.position[0], self.position[1] - 1] != 2:
+                if self.map_state[self.position[0], self.position[1] - 1] != 255:
                     # moving on a free cell
                     self.position[1] -= 1
                     reward += 0.01
@@ -191,7 +263,7 @@ class GraphBasedPPEnv(Env):
         if self.visited_cells == self.freecells:
             reward += 10
         
-        if self.Nstep == 500:
+        if self.Nstep == 20000:
             truncated = True
         
         if self.visited_cells == self.freecells:
@@ -199,26 +271,16 @@ class GraphBasedPPEnv(Env):
 
         info = {}
 
-        self.full_state = np.append(np.append(self.position, self.visited_cells), self.map_state.ravel())
+        # self.full_state = np.append(np.append(self.position, self.visited_cells), self.map_state.ravel())
 
-        if terminated == True:
-            get_output(self.map_state, 0, self.Nstep, self.position)
+        self.map_state = np.array([self.map_state])
 
-        return self.full_state, reward, terminated, truncated, info
+        return self.map_state, reward, terminated, truncated, info
 
     def reset(self, *, seed = None, options = None):
         super().reset(seed=seed, options=options)
 
-        self.map_state = np.zeros((dimcells_y, dimcells_x))
-        self.map_state[0, :] = 2
-        self.map_state[:, 0] = 2
-        self.map_state[dimcells_y - 1, :] = 2
-        self.map_state[:, dimcells_x - 1] = 2
-
-        freecells = np.count_nonzero(self.map_state == 0)
-        coords = np.column_stack(np.where(self.map_state == 0))
-
-        self.freecells = freecells
+        self.map_state = img
 
         init_y, init_x = coords[np.random.choice(coords.shape[0])]
 
@@ -234,89 +296,42 @@ class GraphBasedPPEnv(Env):
 
         self.Nstep = 0
         
-        self.full_state = np.append(np.append(self.position, self.visited_cells), self.map_state.ravel())
+        # self.full_state = np.append(np.append(self.position, self.visited_cells), self.map_state.ravel())
 
         info = {}
 
-        return self.full_state, info
+        self.map_state = np.array([self.map_state])
 
-def get_output(matrix=2*np.ones((dimcells_y, dimcells_x)), episode=0, step=0, position=np.zeros(2)):
-
-    cols = dimcells_x
-    rows = dimcells_y
-    cell_size = 40
-
-    os.makedirs("output_pngs/", exist_ok=True)
-
-    img = Image.new("RGB", (cols * cell_size, rows * cell_size), "white")
-    draw = ImageDraw.Draw(img)
-
-    color_map = {
-        0: (255, 255, 255),
-        1: (0, 255, 0),
-        2: (128, 128, 128)
-    }
-
-    for i in range(rows):
-        for j in range(cols):
-            value = matrix[i][j]
-            color = color_map.get(value, (255, 0, 0))
-            x0 = j * cell_size
-            y0 = i * cell_size
-            x1 = x0 + cell_size
-            y1 = y0 + cell_size
-            draw.rectangle([x0, y0, x1, y1], fill=color, outline=(200, 200, 200))
-    
-    x0 = position[1] * cell_size
-    y0 = position[0] * cell_size
-    x1 = x0 + cell_size
-    y1 = y0 + cell_size
-    draw.rectangle([x0, y0, x1, y1], fill=(255, 0, 0), outline=(200, 200, 200))
-
-    img.save("output_pngs/step_" + str(step) + ".png")
-
-def get_video():
-
-    png_files = [f for f in os.listdir("output_pngs/") if f.endswith('.png')]
-
-    images = [imageio.imread(f'output_pngs/step_{i}.png') for i in range(len(png_files))]
-
-    i = 0
-    for image in images:
-        img = Image.fromarray(image)
-        
-        new_width = img.width * 10
-        new_height = img.height * 10
-        
-        images[i] = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-
-        i += 1
-
-    imageio.mimsave('output_video.mp4', images, fps=2, macro_block_size=None)
-
-    shutil.rmtree("output_pngs/")
+        return self.map_state, info
 
 def train():
-    env = Monitor(GraphBasedPPEnv())
 
-    model = PPO("MlpPolicy",
+    env = GraphBasedPPEnv()
+    env = Monitor(env)
+    check_env(env=env)
+
+    policy_kwargs=dict(
+        net_arch=dict(vf=[64, 64], pi=[1024, 256, 64]),
+    )
+
+    model = PPO("CnnPolicy",
                 env,
                 verbose=1,
-                # gamma=0.999,
+                policy_kwargs=policy_kwargs,
                 # normalize_advantage=False,
                 # ent_coef=0.001,
                 # vf_coef=0.05,
-                tensorboard_log= "Training/tensorboard_log/PPO_GraphBased/",
+                # tensorboard_log= "Training/tensorboard_log/PPO_GraphBased/",
     )
 
-    model.learn(total_timesteps=500000, progress_bar=True)
+    model.learn(total_timesteps=1_000_000, progress_bar=True)
 
-    model.save("Training/saved_models/PPO_GraphBased/PPO_500k_rect10x6_framed_randinitpt_ALLdefault.zip")
+    # model.save("Training/saved_models/PPO_GraphBased/PPO_10M_5maps.zip")
 
 def inference():
     env = DummyVecEnv([lambda: GraphBasedPPEnv()])
 
-    model = PPO.load("Training/saved_models/PPO_GraphBased/PPO_1M_rect10x6_framed_randinitpt_ALLdefault.zip")
+    model = PPO.load("Training/saved_models/PPO_GraphBased/PPO_2M_rect5x3_diffdirpenalty_randinitpt.zip")
 
     episodes = 1
     for episode in range(episodes):
@@ -324,39 +339,21 @@ def inference():
         terminated = False
         truncated = False
         count = 0
-        # print(count)
-        # print_map(obs[0, 3:].reshape(dimcells_y, dimcells_x))
-        get_output(obs[0, 3:].reshape(dimcells_y, dimcells_x), episode, count, obs[0, 0:2])
+        print(count)
+        print_map(obs[0, 3:].reshape(dimcells_y, dimcells_x))
 
         while not terminated:
             count += 1
-            # print(count)
+            print(count)
             action, _ = model.predict(obs)
             obs, reward, terminated, truncated, *info = env.step(action)
             # print("Reward:\t", reward)
-            # print_map(obs[0, 3:].reshape(dimcells_y, dimcells_x), action)
-            if terminated == False:
-                get_output(obs[0, 3:].reshape(dimcells_y, dimcells_x), episode, count, obs[0, 0:2])
-        
-        get_video()
+            print_map(obs[0, 3:].reshape(dimcells_y, dimcells_x), action)
 
-def train_loadedmodel():
-    env = Monitor(GraphBasedPPEnv())
-
-    model = PPO.load("Training/saved_models/PPO_GraphBased/PPO_500k_rect10x6_framed_randinitpt_ALLdefault.zip", env=env)
-
-    model.learn(total_timesteps=500000,
-                progress_bar=True,
-                tb_log_name="PPO_1M_rect10x6_framed_randinitpt_ALLdefault",
-                reset_num_timesteps=False,
-    )
-
-    model.save("Training/saved_models/PPO_GraphBased/PPO_1M_rect10x6_framed_randinitpt_ALLdefault.zip")
 
 if __name__ == '__main__':
-
-    # train()
+        
+    train()
     # inference()
-    # train_loadedmodel()
     pass
         
