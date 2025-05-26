@@ -116,7 +116,7 @@ def objective(trial: optuna.Trial) -> float:
 
     nan_encountered = False
     try:
-        model.learn(N_TIMESTEPS, callback=eval_callback)
+        model.learn(N_TIMESTEPS, callback=eval_callback, progress_bar=True)
     except AssertionError as e:
         # Sometimes, random hyperparams can generate NaN.
         print(e)

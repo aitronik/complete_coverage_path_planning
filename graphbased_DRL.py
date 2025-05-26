@@ -201,8 +201,8 @@ class GraphBasedPPEnv(Env):
 
         self.full_state = np.append(np.append(self.position, self.visited_cells), self.map_state.ravel())
 
-        if terminated == True:
-            get_output(self.map_state, 0, self.Nstep, self.position)
+        # if terminated == True:
+        #     get_output(self.map_state, 0, self.Nstep, self.position)
 
         return self.full_state, reward, terminated, truncated, info
 
@@ -309,9 +309,9 @@ def train():
                 tensorboard_log= "Training/tensorboard_log/PPO_GraphBased/",
     )
 
-    model.learn(total_timesteps=500000, progress_bar=True)
+    model.learn(total_timesteps=3_000_000, progress_bar=True)
 
-    model.save("Training/saved_models/PPO_GraphBased/PPO_500k_rect10x6_framed_randinitpt_ALLdefault.zip")
+    model.save("Training/saved_models/PPO_GraphBased/PPO_3M_rect10x6_framed_randinitpt_ALLdefault.zip")
 
 def inference():
     env = DummyVecEnv([lambda: GraphBasedPPEnv()])
@@ -355,7 +355,7 @@ def train_loadedmodel():
 
 if __name__ == '__main__':
 
-    # train()
+    train()
     # inference()
     # train_loadedmodel()
     pass
