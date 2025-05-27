@@ -9,3 +9,4 @@ tocsv_tensorboardlogs.py
 tocsv_stuff/
 prova.py
 videos_inference/
+path_logger.txt

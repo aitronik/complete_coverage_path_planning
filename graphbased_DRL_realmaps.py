@@ -517,16 +517,16 @@ def train():
                 verbose=1,
                 policy_kwargs=policy_kwargs,
                 # learning_rate=0.001,
-                batch_size=1024,
+                # batch_size=1024,
                 # gae_lambda=0.98,
                 # gamma=0.995,
-                ent_coef=0.1,
+                ent_coef=0.01,
                 tensorboard_log= "Training/tensorboard_log/PPO_GraphBased/",
     )
 
     model.learn(total_timesteps=5_000_000, progress_bar=True)
 
-    model.save("Training/saved_models/PPO_GraphBased/PPO_5M_realmap36x36_MultiInputPolicy_netarch_256_64_16_entcoeff1e-1_batchsize1024.zip")
+    model.save("Training/saved_models/PPO_GraphBased/PPO_5M_realmap36x36_MultiInputPolicy_netarch_256_64_16_entcoeff1e-2.zip")
 
 def inference():
     env = DummyVecEnv([lambda: GraphBasedPPEnv()])
