@@ -22,12 +22,12 @@ NUM_ENVS = 32  # 16
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # === Reward Constants ===
-R_STEP = -0.01
+R_STEP = -0.1
 R_ACTION_EQUAL = 0.01
 R_ACTION_NOTEQUAL = -0.01
 R_COLLIDE = -1.0
 R_NEW = 1.0
-R_MOVE = 0.1
+R_MOVE = 0.01
 R_DONE = 10.0
 
 # === VALUE
@@ -55,6 +55,7 @@ class Action(IntEnum):
 
 # === Path Logger ===
 path_logger = []
+FILE_PATH_LOGGER = "path_logger.txt"
 
 # === Custom CNN Extractor ===
 class CustomCNN(BaseFeaturesExtractor):
@@ -191,15 +192,33 @@ def train():
     # model.learn(TOTAL_TIMESTEPS, callback=eval_callback,progress_bar=True)
     model.learn(TOTAL_TIMESTEPS, progress_bar=True)
     # model.save("ppo_graphbased_final")
+    # env.save("Training/saved_models/PPO_GraphBased/script_framic/vecnormalize.pkl")
+
+def train_loadedmodel():
+
+    vec_env = SubprocVecEnv([make_env(i) for i in range(NUM_ENVS)])
+    vec_env.seed(0)
+    env = VecNormalize(vec_env, norm_obs=True, norm_reward=True, clip_obs=10.)
+
+    model = PPO.load("ppo_10M_rmove0_finalboost100.zip", env=env)
+
+    model.learn(total_timesteps=10_000_000,
+                # progress_bar=True,
+                tb_log_name="ppo_20M_rmove0_finalboost100",
+                reset_num_timesteps=False,
+    )
+
+    model.save("ppo_20M_rmove0_finalboost100")
+    env.save("ppo_20M_rmove0_finalboost100.pkl")
 
 def inference():
     vec_env = DummyVecEnv([make_env(0)])
-    env = VecNormalize.load("Training/saved_models/PPO_GraphBased/script_framic/ppo_10M_2.pkl", vec_env)
+    env = VecNormalize.load("Training/saved_models/PPO_GraphBased/script_framic/ppo_20M_rmove0.pkl", vec_env)
     env.training = False
     env.norm_reward = False
 
     model = PPO.load(
-        "Training/saved_models/PPO_GraphBased/script_framic/ppo_10M_2.zip",
+        "Training/saved_models/PPO_GraphBased/script_framic/ppo_20M_rmove0.zip",
         custom_objects={
             "lr_schedule": lambda _: 0.0003,
             "clip_range": lambda _: 0.2,
@@ -223,26 +242,107 @@ def inference():
     
     path_logger.pop()
 
-    with open("path_logger.txt", "w") as f:
+    with open(FILE_PATH_LOGGER, "w") as f:
         for pos in path_logger:
             f.write(f"{pos}\n")
     
     env.close()
 
-# def visualize_path():
-#     img = BASE_MAP.copy()
-#     path = []
-#     with open("path_logger.txt", "r") as f:
-#         for line in f:
-#             y, x = eval(line.strip())
-#             path.append((y, x))
-#     for y, x in path:
-#         img[y, x] = 0.5  # Set visited cells to a different value
-#     img = (img * 255).astype(np.uint8)
-#     img = cv2.resize(img, (img.shape[1]*20, img.shape[0]*20), interpolation=cv2.INTER_NEAREST)
-#     cv2.imshow("Path", img)
-#     cv2.waitKey(0)
-#     cv2.destroyAllWindows()
+def inference_video(video_path="inference_video.avi", fps=10):
+    vec_env = DummyVecEnv([make_env(0)])
+    env = VecNormalize.load("Training/saved_models/PPO_GraphBased/script_framic/ppo_20M_rmove0_finalboost100.pkl", vec_env)
+    env.training = False
+    env.norm_reward = False
+
+    model = PPO.load(
+        "Training/saved_models/PPO_GraphBased/script_framic/ppo_20M_rmove0_finalboost100.zip",
+        custom_objects={
+            "lr_schedule": lambda _: 0.0003,
+            "clip_range": lambda _: 0.2,
+            "policy_kwargs": dict({
+                    "features_extractor_class": CustomCNN,
+                    "features_extractor_kwargs": {"features_dim": 128},
+                    "net_arch": [256, 128]
+                }
+            )
+        }
+    )
+
+    obs = env.reset()
+    terminated = False
+    truncated = False
+
+    # Setup video writer
+    img = BASE_MAP.copy()
+    img = (img * 255).astype(np.uint8)
+    img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    scale = 20
+    frame_size = (img.shape[1]*scale, img.shape[0]*scale)
+    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    out = cv2.VideoWriter(video_path, fourcc, fps, frame_size)
+
+    path = []
+    while not terminated:
+        action, _ = model.predict(obs)
+        obs, reward, terminated, truncated, *info = env.step(action)
+        # Aggiorna path
+        pos = tuple(np.array(env.get_original_obs()[0][0] == CELL_NOW).nonzero())
+        if len(pos[0]) > 0:
+            y, x = pos[0][0], pos[1][0]
+        else:
+            y, x = -1, -1
+        path.append((y, x))
+
+        # Crea frame
+        frame = BASE_MAP.copy()
+        frame = (frame * 255).astype(np.uint8)
+        frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+        # Colora percorso già visitato
+        for py, px in path[:-1]:
+            if py >= 0 and px >= 0:
+                frame[py, px] = (0, 255, 0)  # Verde chiaro
+        # Colora posizione attuale
+        if y >= 0 and x >= 0:
+            frame[y, x] = (0, 0, 255)  # Rosso
+        frame = cv2.resize(frame, frame_size, interpolation=cv2.INTER_NEAREST)
+        out.write(frame)
+
+    out.release()
+    env.close()
+    print(f"Video salvato in: {video_path}")
+
+def video_from_path_logger(path_logger_file="path_logger.txt", video_path="video_from_logger.avi", fps=10):
+    img = BASE_MAP.copy()
+    img = (img * 255).astype(np.uint8)
+    img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    scale = 20
+    frame_size = (img.shape[1]*scale, img.shape[0]*scale)
+    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    out = cv2.VideoWriter(video_path, fourcc, fps, frame_size)
+
+    # Carica il path dal file
+    path = []
+    with open(path_logger_file, "r") as f:
+        for line in f:
+            y, x = eval(line.strip())
+            path.append((y, x))
+
+    visited = set()
+    for i, (y, x) in enumerate(path):
+        frame = BASE_MAP.copy()
+        frame = (frame * 255).astype(np.uint8)
+        frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+        # Colora percorso già visitato (escludendo la posizione attuale)
+        for py, px in list(visited):
+            frame[py, px] = (0, 255, 0)  # Verde chiaro
+        # Colora posizione attuale
+        frame[y, x] = (0, 0, 255)  # Rosso
+        visited.add((y, x))
+        frame = cv2.resize(frame, frame_size, interpolation=cv2.INTER_NEAREST)
+        out.write(frame)
+
+    out.release()
+    print(f"Video salvato in: {video_path}")
 
 def visualize_path():
     img = BASE_MAP.copy()
@@ -250,7 +350,7 @@ def visualize_path():
     img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)  # Converti in RGB
 
     path = []
-    with open("path_logger.txt", "r") as f:
+    with open(FILE_PATH_LOGGER, "r") as f:
         for line in f:
             y, x = eval(line.strip())
             path.append((y, x))
@@ -278,6 +378,45 @@ def visualize_path():
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
+def visualize_overlap():
+    img = BASE_MAP.copy()
+    img = (img * 255).astype(np.uint8)
+    img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)  # Converti in RGB
+
+    # white = np.all(img == [255, 255, 255], axis=-1)
+    # img[white] = (0, 64, 255)
+
+    # Conta le visite per ogni cella
+    path = []
+    with open(FILE_PATH_LOGGER, "r") as f:
+        for line in f:
+            y, x = eval(line.strip())
+            path.append((y, x))
+
+    from collections import Counter
+    counts = Counter(path)
+    if not counts:
+        print("Path vuoto.")
+        return
+
+    max_count = max(counts.values())
+
+    for (y, x), count in counts.items():
+        if count == 1:
+            color = (0, 255, 0)  # Verde
+        else:
+            alpha = (count - 2) / (max_count - 2) if max_count > 2 else 0
+            r = int(0 * (1 - alpha) + 255 * alpha)
+            g = 0   # int(128 * (1 - alpha) + 0 * alpha)
+            b = int(255 * (1 - alpha) + 0 * alpha)
+            color = (b, g, r)
+        img[y, x] = color
+
+    img = cv2.resize(img, (img.shape[1]*20, img.shape[0]*20), interpolation=cv2.INTER_NEAREST)
+    cv2.imshow("Path Coverage", img)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
 def prova():
     vec_env = DummyVecEnv([make_env(0)])
     env = VecNormalize(vec_env, norm_obs=True, norm_reward=True, clip_obs=10.)
@@ -295,8 +434,13 @@ if __name__ == '__main__':
     set_random_seed(0)
     
     # train()
-    inference()
+    # train_loadedmodel()
+    # inference()
     # prova()
-    visualize_path()
+    # visualize_path()
+    # visualize_overlap()
+
+    # inference_video(video_path="inference_video_20M.avi", fps=20)
+    # video_from_path_logger(path_logger_file=FILE_PATH_LOGGER, video_path="video_from_logger.avi", fps=20)
 
     pass

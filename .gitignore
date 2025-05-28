@@ -10,3 +10,7 @@ tocsv_stuff/
 prova.py
 videos_inference/
 path_logger.txt
+path_logger_2.txt
+inference_video.avi
+inference_video_20M.avi
+video_from_logger.avi
