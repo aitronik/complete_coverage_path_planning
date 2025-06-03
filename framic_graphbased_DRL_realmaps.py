@@ -17,18 +17,19 @@ from stable_baselines3.common.utils import set_random_seed
 # === Configuration ===
 IMAGE_PATH = "immagini/aree_prova/prova_1_36x36.png"
 MAX_STEPS = 4_000
-TOTAL_TIMESTEPS = 1_000_000
+TOTAL_TIMESTEPS = 10_000_000
 NUM_ENVS = 32  # 16
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # === Reward Constants ===
-R_STEP = -0.1
-R_ACTION_EQUAL = 0.01
-R_ACTION_NOTEQUAL = -0.01
+R_STEP = 0.0
+R_ACTION_EQUAL = 0.0
+R_ACTION_NOTEQUAL = 0.0
 R_COLLIDE = -1.0
-R_NEW = 1.0
-R_MOVE = 0.01
-R_DONE = 10.0
+R_NEW = 0.1
+R_MOVE = 0.0
+R_OLD = -1.0
+R_DONE = 100.0
 
 # === VALUE
 CELL_FREE = 0
@@ -36,6 +37,9 @@ CELL_VISITED = 0.2
 CELL_NOW = 0.8
 CELL_WALL = 1
 
+# === Path Logger ===
+FILE_PATH_LOGGER = "path_logger.txt"
+path_logger = []
 
 # === Load Map ===
 _img = cv2.imread(IMAGE_PATH, cv2.IMREAD_GRAYSCALE)
@@ -52,10 +56,6 @@ class Action(IntEnum):
     EAST = 1
     SOUTH = 2
     WEST = 3
-
-# === Path Logger ===
-path_logger = []
-FILE_PATH_LOGGER = "path_logger.txt"
 
 # === Custom CNN Extractor ===
 class CustomCNN(BaseFeaturesExtractor):
@@ -96,7 +96,7 @@ class GraphBasedEnv(Env):
         idx = self.np_random.choice(len(_coords))
         y, x = tuple(_coords[idx])
         self.pos = (y, x)
-        path_logger.append(self.pos)
+        # path_logger.append(self.pos)
         self.state[y, x] = CELL_NOW
         self.visited = 1
         self.previous_action = -1
@@ -117,9 +117,11 @@ class GraphBasedEnv(Env):
                 self.visited += 1
             reward += R_MOVE
             self.state[y, x] = CELL_VISITED
+            if self.state[ny, nx] == CELL_VISITED:
+                reward += R_OLD
         self.state[ny, nx] = CELL_NOW
         self.pos = (ny, nx)
-        path_logger.append(self.pos)
+        # path_logger.append(self.pos)
         self.steps += 1
         if self.previous_action != action and self.previous_action != -1:
             reward += R_ACTION_NOTEQUAL
@@ -153,26 +155,12 @@ def train():
     vec_env = SubprocVecEnv([make_env(i) for i in range(NUM_ENVS)])
     vec_env.seed(0)
     env = VecNormalize(vec_env, norm_obs=True, norm_reward=True, clip_obs=10.)
-    
-    # env = VecNormalize(vec_env, norm_obs=False, norm_reward=False, clip_obs=10.)
-    # evaluation env
-    # eval_vec = SubprocVecEnv([make_env(i + 100) for i in range(4)])
-    # eval_vec.seed(100)
-    # eval_env = VecNormalize(eval_vec, norm_obs=True, norm_reward=False, clip_obs=10.)
-    # eval_callback = EvalCallback(
-    #     eval_env,
-    #     best_model_save_path="./logs/",
-    #     log_path="./logs/",
-    #     eval_freq=TOTAL_TIMESTEPS // 10,
-    #     n_eval_episodes=5,
-    #     deterministic=True
-    # )
-    # model
+
     model = PPO(
         policy="CnnPolicy",
         env=env,
         learning_rate=3e-4,
-        n_steps=512, 
+        n_steps=512,
         batch_size=NUM_ENVS * 64, # *8
         gamma=0.99,
         gae_lambda=0.95,
@@ -184,7 +172,7 @@ def train():
             "net_arch": [256, 128]
         },
         verbose=1,
-        # tensorboard_log= "Training/tensorboard_log/PPO_GraphBased/",
+        tensorboard_log= "./",
         device=DEVICE
     )
     # training
@@ -200,16 +188,22 @@ def train_loadedmodel():
     vec_env.seed(0)
     env = VecNormalize(vec_env, norm_obs=True, norm_reward=True, clip_obs=10.)
 
-    model = PPO.load("ppo_10M_rmove0_finalboost100.zip", env=env)
+    env = VecNormalize.load("ppo_10M_rold1_rnew1e-1_finalboost100.pkl", vec_env)
+    model = PPO.load("ppo_10M_rold1_rnew1e-1_finalboost100.zip",
+                     env=env,
+                    #  custom_objects={
+                    #      "learning_rate": 1e-4
+                    #  }
+    )
 
     model.learn(total_timesteps=10_000_000,
                 # progress_bar=True,
-                tb_log_name="ppo_20M_rmove0_finalboost100",
+                tb_log_name="ppo_20M_rold1_rnew1e-1_finalboost100",
                 reset_num_timesteps=False,
     )
 
-    model.save("ppo_20M_rmove0_finalboost100")
-    env.save("ppo_20M_rmove0_finalboost100.pkl")
+    model.save("ppo_20M_rold1_rnew1e-1_finalboost100")
+    env.save("ppo_20M_rold1_rnew1e-1_finalboost100.pkl")
 
 def inference():
     vec_env = DummyVecEnv([make_env(0)])
@@ -250,12 +244,12 @@ def inference():
 
 def inference_video(video_path="inference_video.avi", fps=10):
     vec_env = DummyVecEnv([make_env(0)])
-    env = VecNormalize.load("Training/saved_models/PPO_GraphBased/script_framic/ppo_20M_rmove0_finalboost100.pkl", vec_env)
+    env = VecNormalize.load("Training/saved_models/PPO_GraphBased/script_framic/ppo_20M_rold1_rnew1e-1_finalboost100.pkl", vec_env)
     env.training = False
     env.norm_reward = False
 
     model = PPO.load(
-        "Training/saved_models/PPO_GraphBased/script_framic/ppo_20M_rmove0_finalboost100.zip",
+        "Training/saved_models/PPO_GraphBased/script_framic/ppo_20M_rold1_rnew1e-1_finalboost100.zip",
         custom_objects={
             "lr_schedule": lambda _: 0.0003,
             "clip_range": lambda _: 0.2,
@@ -440,7 +434,7 @@ if __name__ == '__main__':
     # visualize_path()
     # visualize_overlap()
 
-    # inference_video(video_path="inference_video_20M.avi", fps=20)
+    # inference_video(video_path="inference_video_20M_rold1_rnew1e-1.avi", fps=20)
     # video_from_path_logger(path_logger_file=FILE_PATH_LOGGER, video_path="video_from_logger.avi", fps=20)
 
     pass
