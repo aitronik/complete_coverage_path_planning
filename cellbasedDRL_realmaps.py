@@ -212,21 +212,22 @@ class GraphBasedEnv(Env):
         mean_coverage = self.visited / FREE_CELLS
         # R_COLLIDE = -0.1 * (1 + mean_coverage)
 
-        ny, nx = y, x
+        ny, nx = y + dy, x + dx
+
         outBox = not (0 <= y+dy < h and 0 <= x+dx < w) 
         if outBox:  #   out of bounds
 
             reward += R_COLLIDE 
-            self.episode_collisions += 1 
+            self.episode_collisions += 1
+            ny, nx = y, x
             
         elif self.base_map[ny, nx] == CELL_WALL:  # wall collision
 
             reward += R_COLLIDE
             self.episode_collisions += 1
+            ny, nx = y, x
 
         else:
-
-            ny, nx = y + dy, x + dx # valid move
 
             if self.state[ny, nx] == CELL_FREE:
                 reward += R_NEW
