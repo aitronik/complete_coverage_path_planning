@@ -36,22 +36,15 @@ NET_ARCH = [256, 128]
 R_DONE              =   50.0
 R_NEW               =   1.0
 R_STEP              =  -0.02
-R_ACTION_EQUAL      =   0.0 
-R_ACTION_NOTEQUAL   =   0.0
+R_ACTION_EQUAL      =   0.0
+R_ACTION_NOTEQUAL   =  -0.05
 R_VISITED           =  -0.2
 R_COLLIDE           =  -3.0
 R_TIMEOUT           =  -5.0 
-R_MOVE              =   0.005 
+R_MOVE              =   0.02 
+RUNLEN_BONUS_K      =   0.01       
+RUNLEN_CAP          =   10          
 
-# R_DONE              = 100.0
-# R_NEW               =   0.1
-# R_ACTION_EQUAL      =   0.0
-# R_STEP              =   0.0
-# R_ACTION_NOTEQUAL   =   0.0
-# R_VISITED           =  -1.0
-# R_COLLIDE           =  -1.0
-# R_TIMEOUT           =   0.0
-# R_MOVE              =   0.0 # Reward for a valid move
 
 # === VALUE
 CELL_FREE =     0.0
@@ -67,7 +60,7 @@ if _img is None:
 h, w = _img.shape
 _coords = np.column_stack(np.where(_img == 255))
 FREE_CELLS = len(_coords)
-MAX_STEPS = 5 * FREE_CELLS 
+ 
 BASE_MAP = (_img != 255).astype(np.float32) * CELL_WALL
 
 # === Actions ===
@@ -105,6 +98,7 @@ class PrintExtraInfosCallback(BaseCallback):
         self.episode_collisions = []
         self.episode_steps = []
         self.episode_count = 0
+        self.episode_run_len = []
 
     def _on_step(self) -> bool:
         infos = self.locals.get("infos", [])
@@ -122,6 +116,7 @@ class PrintExtraInfosCallback(BaseCallback):
             vals = self.episode_visited[:self.num_envs]
             colls = self.episode_collisions[:self.num_envs]
             steps = self.episode_steps[:self.num_envs]
+
             self.episode_count += self.num_envs
 
             if self.absoluteMax_visited_cells < max(vals):
@@ -157,6 +152,43 @@ class PrintExtraInfosCallback(BaseCallback):
             self.episode_steps = self.episode_steps[self.num_envs:]
         return True
 
+class DynamicParamsCallback(BaseCallback):
+    """
+    Riduce in modo lineare `max_steps_factor` da `initial_factor` a
+    `final_factor` durante l'addestramento, utilizzando la variabile
+    `model._current_progress_remaining` di Stable-Baselines3.
+
+    Compatibile sia con DummyVecEnv che con SubprocVecEnv:
+    si appoggia a `VecEnv.set_attr`, quindi non accede a `envs`.
+    """
+
+    def __init__(self,
+                 initial_factor: float = 3.0,
+                 final_factor: float = 1.5,
+                 verbose: int = 0):
+        super().__init__(verbose)
+        self.initial_factor = initial_factor
+        self.final_factor   = final_factor
+
+    # ---------- callback life-cycle ----------
+    def _on_training_start(self) -> None:
+        # imposta il valore iniziale su TUTTI i sotto-env
+        self.training_env.set_attr("max_steps_factor", self.initial_factor)
+
+    def _on_step(self) -> bool:
+        # progress_remaining ∈ [1.0 … 0.0]
+        prog = getattr(self.model, "_current_progress_remaining", 1.0)
+        # interpolazione lineare
+        new_factor = self.final_factor + (self.initial_factor - self.final_factor) * prog
+
+        # aggiorna in broadcast su tutti i processi/env
+        self.training_env.set_attr("max_steps_factor", new_factor)
+
+        return True
+
+
+
+
 # === Custom CNN Extractor ===
 class CustomCNN(BaseFeaturesExtractor):
     def __init__(self, observation_space: spaces.Box, features_dim: int = 128):
@@ -191,6 +223,7 @@ class GraphBasedEnv(Env):
         self.action_space = spaces.Discrete(4)
         self.base_map = BASE_MAP.copy().astype(np.float32)
         self.previous_action = -1
+        self.max_steps_factor = 3
 
     def reset(self, *, seed=None, options=None) -> Tuple[np.ndarray, Dict]:
         super().reset(seed=seed)
@@ -204,6 +237,8 @@ class GraphBasedEnv(Env):
         self.previous_action = -1
         self.steps = 0
         self.prev_cov = self.visited / FREE_CELLS
+        self.run_len = 0
+        self.max_steps_episode = int(self.max_steps_factor * FREE_CELLS)
         return self._obs(), {}
 
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, bool, Dict]:
@@ -244,10 +279,12 @@ class GraphBasedEnv(Env):
 
             self.state[y, x] = CELL_VISITED
 
-            if self.previous_action != action:
-                reward += R_ACTION_NOTEQUAL
+            if self.previous_action == action:
+                self.run_len += 1
+                reward += RUNLEN_BONUS_K * min(self.run_len, RUNLEN_CAP)
             else:
-                reward += R_ACTION_EQUAL
+                reward += R_ACTION_NOTEQUAL
+                self.run_len = 0
         
         
         # --- shaping sul progresso di copertura ---
@@ -267,7 +304,7 @@ class GraphBasedEnv(Env):
             terminated = True
             reward += R_DONE
             # print("TERMINATED: coverage completa", flush=True)
-        elif(self.steps >= MAX_STEPS):
+        elif(self.steps >= self.max_steps_episode):
             truncated = True
             reward += R_TIMEOUT
             # print("TRUNCATED: max steps raggiunto", flush=True)
@@ -275,7 +312,7 @@ class GraphBasedEnv(Env):
         info = {
             "collisions": self.episode_collisions,
             "visited_cells": self.visited,
-            "steps": self.steps
+            "steps": self.steps,
         }
 
         return self._obs(), float(reward), terminated, truncated, info
@@ -303,12 +340,25 @@ def make_env(rank: int):
         return Monitor(env)
     return _init
 
+def dynamicLr(progress_remaining):
+    
+    if progress_remaining > 0.8:
+        return 3e-4
+    elif progress_remaining > 0.6:
+        return 2e-4
+    elif progress_remaining > 0.4:
+        return 1e-4
+    elif progress_remaining > 0.2:
+        return 5e-5
+    else:
+        return 1e-5
+
 def train(total_steps: int = TOTAL_TIMESTEPS, model_name_load: str = None, model_name_save: str = DEFAULT_MODEL_NAME):
     # vectorized + normalize
     # NUM_ENVS is set to 8 to balance parallelism and resource usage, typically based on the number of CPU cores available.
     vec_env = SubprocVecEnv([make_env(i) for i in range(NUM_ENVS)])
     vec_env.seed(0)
-    env = VecNormalize(vec_env, norm_obs=True, norm_reward=True, clip_obs=10.)
+    env = VecNormalize(vec_env, norm_obs=False, norm_reward=True, clip_obs=10.)
     
     reset_timesteps = True
     if(model_name_load is not None):
@@ -323,7 +373,7 @@ def train(total_steps: int = TOTAL_TIMESTEPS, model_name_load: str = None, model
         model = PPO(
             policy="CnnPolicy",
             env=env,
-            learning_rate = 2e-4, #3e-4,
+            learning_rate = dynamicLr, #3e-4,
             n_steps=2048, 
             batch_size= 4096,
             gamma=GAMMA,
@@ -356,7 +406,7 @@ def train(total_steps: int = TOTAL_TIMESTEPS, model_name_load: str = None, model
     model.learn(total_steps, 
                 reset_num_timesteps=reset_timesteps, 
                 progress_bar=True, 
-                callback=[PrintExtraInfosCallback(), checkpoint_callback, vecnorm_callback])
+                callback=[PrintExtraInfosCallback(), checkpoint_callback, vecnorm_callback, DynamicParamsCallback()])
 
     model_save_path = DEFAULT_MODEL_PATH + model_name_save + ".zip"
     model.save(model_save_path)
@@ -405,7 +455,7 @@ def inference_video(model_name_load: str = DEFAULT_MODEL_NAME, video_path: str =
     env = VecNormalize.load(DEFAULT_MODEL_PATH + model_name_load + "_vecnormalize.pkl", vec_env)
     env.training = False
     env.norm_reward = False
-    env.norm_obs = True
+    env.norm_obs = False
 
     model = PPO.load(
         DEFAULT_MODEL_PATH + model_name_load + ".zip",
@@ -504,7 +554,7 @@ if __name__ == '__main__':
     # fix global seed
     set_random_seed(0)
     
-    # train(total_steps=100_000_000, model_name_save="ppo_trained_100M")
+    #train(total_steps=100_000_000, model_name_save="ppo_trained_100M")
     # inference(model_name_load="ppo_trained_100M")
     inference_video(model_name_load="ppo_trained_100M", video_path="inference_video_100M.avi", fps=20)
     # visualize_path()
