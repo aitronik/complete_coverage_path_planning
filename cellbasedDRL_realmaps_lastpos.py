@@ -18,7 +18,7 @@ from stable_baselines3.common.callbacks import CheckpointCallback
 
 torch.backends.cudnn.benchmark = True  # For performance optimization on GPUs
 # === Configuration ===
-IMAGE_PATH = "images/prova_1_36x36.png"
+IMAGE_PATH = "immagini/aree_prova/prova_1_36x36.png"
 TOTAL_TIMESTEPS = 1_000_000
 NUM_ENVS = 16
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -30,27 +30,28 @@ DEFAULT_TENSORBOARD_LOG = "Training/tensorboard_log/"
 NET_ARCH = [256, 128]
 
 # === Reward Constants ===
-# R_DONE              =   100.0
-# R_NEW               =   1.0 # o 0.5
-# R_ACTION_EQUAL      =   0.0#0.1
-# R_STEP              =   -0.1
-# R_ACTION_NOTEQUAL   =   0.0#-0.1
-# R_VISITED           =   -0.1
-# R_COLLIDE           =   -10.0
-# R_TIMEOUT           =   0.0#-1.0 
-
 R_DONE              =   100.0
-R_NEW               =   1.0 # o 0.5
-R_ACTION_EQUAL      =   0.0 #0.1
+R_NEW               =   1.0
+R_ACTION_EQUAL      =   0.01
 R_STEP              =   0.0
-R_ACTION_NOTEQUAL   =   0.0 #-0.1
+R_ACTION_NOTEQUAL   =   -0.01
 R_VISITED           =   -0.1
 R_COLLIDE           =   -1.0
-R_TIMEOUT           =   0.0 #-1.0 
+R_TIMEOUT           =   0.0 
+
+# R_DONE              =   100.0
+# R_NEW               =   1.0
+# R_ACTION_EQUAL      =   0.0
+# R_STEP              =   0.0
+# R_ACTION_NOTEQUAL   =   0.0
+# R_VISITED           =   -0.1
+# R_COLLIDE           =   -1.0
+# R_TIMEOUT           =   0.0 
 
 # === VALUE
 CELL_FREE = 0
 CELL_VISITED = 0.2
+CELL_LAST_VISITED = 0.5
 CELL_NOW = 0.8
 CELL_WALL = 1
 
@@ -190,6 +191,7 @@ class GraphBasedEnv(Env):
         idx = self.np_random.choice(len(_coords))
         y, x = tuple(_coords[idx])
         self.pos = (y, x)
+        self.last_pos = (y, x)
         # path_logger.append(self.pos)
         self.state[y, x] = CELL_NOW
         self.visited = 1
@@ -235,15 +237,20 @@ class GraphBasedEnv(Env):
             elif self.state[ny, nx] == CELL_VISITED:
                 reward += R_VISITED
 
-            self.state[y, x] = CELL_VISITED
+            # self.state[y, x] = CELL_VISITED
 
             if self.previous_action != action:
                 reward += R_ACTION_NOTEQUAL
             else:
                 reward += R_ACTION_EQUAL
                      
+        # if self.state[self.last_pos] == CELL_LAST_VISITED:
+        self.state[self.last_pos] = CELL_VISITED
+        self.state[y, x] = CELL_LAST_VISITED
         self.state[ny, nx] = CELL_NOW
+
         self.pos = (ny, nx)
+        # self.last_pos = (y, x)
 
         self.steps += 1
         self.previous_action = action
@@ -432,6 +439,11 @@ def inference_video(model_name_load: str = DEFAULT_MODEL_NAME, video_path="infer
         for py, px in path[:-1]:
             if py >= 0 and px >= 0:
                 frame[py, px] = (0, 255, 0)  # Verde chiaro
+        # Colora cella LAST_VISITED in blu
+        state = env.get_original_obs()[0][0]
+        last_visited_pos = np.where(state == CELL_LAST_VISITED)
+        for ly, lx in zip(*last_visited_pos):
+            frame[ly, lx] = (255, 0, 0)  # Blu in BGR
         # Colora posizione attuale
         if y >= 0 and x >= 0:
             frame[y, x] = (0, 0, 255)  # Rosso
@@ -480,8 +492,8 @@ if __name__ == '__main__':
     # fix global seed
     set_random_seed(0)
     
-    train(total_steps=100_000_000, model_name_save="ppo_trained_100M")
-    #inference(model_name_load="ppo_trained_50M", video_path="inference_video_20M_rold1_rnew1e-1.avi", fps=20)
-    #inference_video(model_name_load="ppo_trained_50M")
+    # train(total_steps=100_000_000, model_name_save="ppo_trained_100M")
+    #inference(model_name_load="ppo_trained_50M")
+    inference_video(model_name_load="ppo_10M_rold1e-1_finalboost100_lastpos", video_path="prova.avi", fps=20)
 
     pass
