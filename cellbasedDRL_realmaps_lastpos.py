@@ -18,8 +18,8 @@ from stable_baselines3.common.callbacks import CheckpointCallback
 
 torch.backends.cudnn.benchmark = True  # For performance optimization on GPUs
 # === Configuration ===
-IMAGE_PATH = "immagini/aree_prova/prova_1_36x36.png"
-TOTAL_TIMESTEPS = 1_000_000
+IMAGE_PATH = "images/prova_1_36x36.png"
+TOTAL_TIMESTEPS = 10_000_000
 NUM_ENVS = 16
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -32,21 +32,12 @@ NET_ARCH = [256, 128]
 # === Reward Constants ===
 R_DONE              =   100.0
 R_NEW               =   1.0
-R_ACTION_EQUAL      =   0.01
+R_ACTION_EQUAL      =   0.0
 R_STEP              =   0.0
-R_ACTION_NOTEQUAL   =   -0.01
+R_ACTION_NOTEQUAL   =   0.0
 R_VISITED           =   -0.1
 R_COLLIDE           =   -1.0
 R_TIMEOUT           =   0.0 
-
-# R_DONE              =   100.0
-# R_NEW               =   1.0
-# R_ACTION_EQUAL      =   0.0
-# R_STEP              =   0.0
-# R_ACTION_NOTEQUAL   =   0.0
-# R_VISITED           =   -0.1
-# R_COLLIDE           =   -1.0
-# R_TIMEOUT           =   0.0 
 
 # === VALUE
 CELL_FREE = 0
@@ -63,7 +54,7 @@ if _img is None:
 h, w = _img.shape
 _coords = np.column_stack(np.where(_img == 255))
 FREE_CELLS = len(_coords)
-MAX_STEPS = 4000 
+MAX_STEPS = 4_000 
 BASE_MAP = (_img != 255).astype(np.float32)
 
 # === Actions ===
@@ -244,13 +235,12 @@ class GraphBasedEnv(Env):
             else:
                 reward += R_ACTION_EQUAL
                      
-        # if self.state[self.last_pos] == CELL_LAST_VISITED:
         self.state[self.last_pos] = CELL_VISITED
         self.state[y, x] = CELL_LAST_VISITED
         self.state[ny, nx] = CELL_NOW
 
         self.pos = (ny, nx)
-        # self.last_pos = (y, x)
+        self.last_pos = (y, x)
 
         self.steps += 1
         self.previous_action = action
@@ -290,6 +280,17 @@ def make_env(rank: int):
         return Monitor(env)
     return _init
 
+def step_schedule(progress_remaining):
+
+    if progress_remaining > 0.45:
+        return 1e-5
+    elif progress_remaining > 0.3:
+        return 7e-6
+    elif progress_remaining > 0.15:
+        return 4e-6
+    else:
+        return 1e-6
+
 def train(total_steps: int = TOTAL_TIMESTEPS, model_name_load: str = None, model_name_save: str = DEFAULT_MODEL_NAME):
     # vectorized + normalize
     # NUM_ENVS is set to 8 to balance parallelism and resource usage, typically based on the number of CPU cores available.
@@ -303,7 +304,11 @@ def train(total_steps: int = TOTAL_TIMESTEPS, model_name_load: str = None, model
         if os.path.exists(model_path_load):
             print(f"Loading model from {model_name_load}")
             env = VecNormalize.load(DEFAULT_MODEL_PATH + model_name_load + "_vecnormalize.pkl", vec_env)
-            model = PPO.load(model_path_load, env=env, device=DEVICE)
+            model = PPO.load(model_path_load,
+                             env=env,
+                             learning_rate=3e-4,
+                             device=DEVICE,
+                             )
             reset_timesteps = False
     else:
         print("No model to load, creating a new one.")
@@ -311,6 +316,7 @@ def train(total_steps: int = TOTAL_TIMESTEPS, model_name_load: str = None, model
             policy="CnnPolicy",
             env=env,
             learning_rate = 3e-4, #1e-4,
+            # learning_rate=step_schedule,
             n_steps=512, 
             batch_size= NUM_ENVS * 64,
             gamma=0.99,
@@ -492,8 +498,7 @@ if __name__ == '__main__':
     # fix global seed
     set_random_seed(0)
     
-    # train(total_steps=100_000_000, model_name_save="ppo_trained_100M")
+    train(total_steps=40_000_000, model_name_load="ppo_trained_10M_lastpos", model_name_save="ppo_trained_50M_lastpos")
     #inference(model_name_load="ppo_trained_50M")
-    inference_video(model_name_load="ppo_10M_rold1e-1_finalboost100_lastpos", video_path="prova.avi", fps=20)
-
+    # inference_video(model_name_load="ppo_trained_10M_lastpos", video_path="prova.avi", fps=20)
     pass
