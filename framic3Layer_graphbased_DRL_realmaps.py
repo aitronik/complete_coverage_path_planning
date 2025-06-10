@@ -33,7 +33,7 @@ DEFAULT_TENSORBOARD_LOG = "Training/tensorboard_log/"
 NET_ARCH = [256, 128]
 
 # === Reward Constants ===
-R_DONE              =   50.0
+R_DONE              =   100.0
 R_NEW               =   1.0
 R_STEP              =  -0.02
 R_ACTION_EQUAL      =   0.0
@@ -43,8 +43,11 @@ R_COLLIDE           =  -3.0
 R_TIMEOUT           =  -5.0 
 R_MOVE              =   0.02 
 RUNLEN_BONUS_K      =   0.01       
-RUNLEN_CAP          =   10          
-
+RUNLEN_CAP          =   100 
+         
+# - Ridurre R_STEP a -0.05
+# - Ridurre R_VISITED a -1.0
+# - Ridurre col passare delle iterazioni R_STEP da -0.01 a -1.0
 
 # === VALUE
 CELL_FREE =     0.0
@@ -163,8 +166,8 @@ class DynamicParamsCallback(BaseCallback):
     """
 
     def __init__(self,
-                 initial_factor: float = 3.0,
-                 final_factor: float = 1.5,
+                 initial_factor: float = 10.0,
+                 final_factor: float = 1.0,
                  verbose: int = 0):
         super().__init__(verbose)
         self.initial_factor = initial_factor
@@ -178,11 +181,11 @@ class DynamicParamsCallback(BaseCallback):
     def _on_step(self) -> bool:
         # progress_remaining ∈ [1.0 … 0.0]
         prog = getattr(self.model, "_current_progress_remaining", 1.0)
+        
         # interpolazione lineare
         new_factor = self.final_factor + (self.initial_factor - self.final_factor) * prog
-
-        # aggiorna in broadcast su tutti i processi/env
-        self.training_env.set_attr("max_steps_factor", new_factor)
+        
+        self.training_env.env_method("set_max_steps_factor", new_factor, indices=None)
 
         return True
 
@@ -224,6 +227,11 @@ class GraphBasedEnv(Env):
         self.base_map = BASE_MAP.copy().astype(np.float32)
         self.previous_action = -1
         self.max_steps_factor = 3
+
+    def set_max_steps_factor(self, value: float):
+        """Setter richiamabile via env_method."""
+        self.max_steps_factor   = value
+        self.max_steps_episode = int(self.max_steps_factor * FREE_CELLS)
 
     def reset(self, *, seed=None, options=None) -> Tuple[np.ndarray, Dict]:
         super().reset(seed=seed)
@@ -342,16 +350,16 @@ def make_env(rank: int):
 
 def dynamicLr(progress_remaining):
     
-    if progress_remaining > 0.8:
+    progress_done = 1.0 - progress_remaining
+
+    # if progress_done <= 0.20:
+    #     return 4e-4
+    if progress_done <= 0.40:
         return 3e-4
-    elif progress_remaining > 0.6:
+    elif progress_done <= 0.70:
         return 2e-4
-    elif progress_remaining > 0.4:
-        return 1e-4
-    elif progress_remaining > 0.2:
-        return 5e-5
     else:
-        return 1e-5
+        return 1e-4
 
 def train(total_steps: int = TOTAL_TIMESTEPS, model_name_load: str = None, model_name_save: str = DEFAULT_MODEL_NAME):
     # vectorized + normalize
@@ -390,7 +398,6 @@ def train(total_steps: int = TOTAL_TIMESTEPS, model_name_load: str = None, model
             tensorboard_log= DEFAULT_TENSORBOARD_LOG,
             device=DEVICE
         )
-
 
     checkpoint_callback = CheckpointCallback(
         save_freq=10_000_000 // NUM_ENVS,
@@ -453,12 +460,14 @@ def inference(model_name_load: str = DEFAULT_MODEL_NAME):
 def inference_video(model_name_load: str = DEFAULT_MODEL_NAME, video_path: str = "inference_video.avi", fps: int = 5):
     vec_env = DummyVecEnv([make_env(0)])
     env = VecNormalize.load(DEFAULT_MODEL_PATH + model_name_load + "_vecnormalize.pkl", vec_env)
+    #env = VecNormalize.load(DEFAULT_MODEL_PATH + "vecnormalize_checkpoint_2812500.pkl", vec_env)
     env.training = False
     env.norm_reward = False
     env.norm_obs = False
 
     model = PPO.load(
         DEFAULT_MODEL_PATH + model_name_load + ".zip",
+#        DEFAULT_MODEL_PATH + "ppo_checkpoint_90000000_steps.zip",
         custom_objects={
             "lr_schedule": lambda _: 0.0002,
             "clip_range": lambda _: 0.2,
@@ -554,9 +563,9 @@ if __name__ == '__main__':
     # fix global seed
     set_random_seed(0)
     
-    #train(total_steps=100_000_000, model_name_save="ppo_trained_100M")
+    train(total_steps=100_000_000, model_name_save="ppo_trained_100M")
     # inference(model_name_load="ppo_trained_100M")
-    inference_video(model_name_load="ppo_trained_100M", video_path="inference_video_100M.avi", fps=20)
+    #inference_video(model_name_load="ppo_trained_100M", video_path="inference_video_100M.avi", fps=20)
     # visualize_path()
 
     pass
