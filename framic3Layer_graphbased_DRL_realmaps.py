@@ -4,6 +4,8 @@ from typing import Tuple, Dict
 
 import cv2
 import numpy as np
+from collections import deque
+
 import torch
 import torch.nn as nn
 from gymnasium import Env, spaces
@@ -44,6 +46,8 @@ R_TIMEOUT           =  -5.0
 R_MOVE              =   0.02 
 RUNLEN_BONUS_K      =   0.01       
 RUNLEN_CAP          =   100 
+
+CHECKPOINT_PREFIX = "ppo_checkpoint"
          
 # - Ridurre R_STEP a -0.05
 # - Ridurre R_VISITED a -1.0
@@ -77,7 +81,7 @@ class Action(IntEnum):
 path_logger = []
 
 class VecNormalizeCheckpointCallback(BaseCallback):
-    def __init__(self, env, save_freq, save_path, name_prefix="vecnormalize_checkpoint", verbose=0):
+    def __init__(self, env, save_freq, save_path, name_prefix=CHECKPOINT_PREFIX, verbose=0):
         super().__init__(verbose)
         self.env = env
         self.save_freq = save_freq
@@ -86,22 +90,94 @@ class VecNormalizeCheckpointCallback(BaseCallback):
 
     def _on_step(self) -> bool:
         if self.n_calls % self.save_freq == 0:
-            path = os.path.join(self.save_path, f"{self.name_prefix}_{self.n_calls}.pkl")
+            path = os.path.join(self.save_path, f"{self.name_prefix}_{self.num_timesteps}_vecnormalize.pkl")
             self.env.save(path)
         return True
 
+# class PrintExtraInfosCallback(BaseCallback):
+#     def __init__(self, verbose=0, num_envs=NUM_ENVS):
+#         print("PrintExtraInfosCallback initialized", flush=True)
+#         super().__init__(verbose)
+#         self.absoluteMax_visited_cells = 0
+#         self.absoluteMin_collisions = 10000000
+#         self.num_envs = num_envs
+#         self.episode_visited = []
+#         self.episode_collisions = []
+#         self.episode_steps = []
+#         self.episode_count = 0
+#         self.episode_run_len = []
+#         self.episode_max_steps = []
+
+#     def _on_step(self) -> bool:
+#         infos = self.locals.get("infos", [])
+#         dones = self.locals.get("dones", [])
+
+#         for i, done in enumerate(dones):
+#             if done and "visited_cells" in infos[i]:
+#                 # print(f"AGGIUNGO visited_cells: {infos[i]['visited_cells']}", flush=True)
+#                 self.episode_visited.append(infos[i]["visited_cells"])
+#                 self.episode_collisions.append(infos[i].get("collisions", 0))
+#                 self.episode_steps.append(infos[i].get("steps", 0))
+#                 self.episode_max_steps.append(infos[i].get("max_steps_episode", 0))
+#         # Quando tutti gli env hanno terminato un episodio, stampa statistiche
+#         # print(f"Len episode_visited: {len(self.episode_visited)} / {self.num_envs}", flush=True)
+#         if len(self.episode_visited) >= self.num_envs:
+#             vals = self.episode_visited[:self.num_envs]
+#             colls = self.episode_collisions[:self.num_envs]
+#             steps = self.episode_steps[:self.num_envs]
+#             max_steps = self.episode_max_steps[:self.num_envs]
+
+#             max_max_steps = max(max_steps) if max_steps else 0
+
+#             self.episode_count += self.num_envs
+
+#             if self.absoluteMax_visited_cells < max(vals):
+#                 self.absoluteMax_visited_cells = max(vals)
+#             if self.absoluteMin_collisions > min(colls):
+#                 self.absoluteMin_collisions = min(colls)
+
+#             # Stampa tabellare
+#             meanVisited = sum(vals) / len(vals)
+#             meanCollisions = sum(colls) / len(colls)
+#             meanSteps = sum(steps) / len(steps)
+#             collision_rate = meanCollisions / meanSteps if meanSteps > 0 else 0
+#             coverage_ratio = meanVisited / FREE_CELLS 
+#             print(f"EPISODI: {self.episode_count}")
+#             print(f"{'INDICATORE':<25}\t{'MIN':<8}\t{'MAX':<8}\t{'MEDIA':<10}\t{'ASSOLUTO'}")
+#             print(f"{'Celle nuove visitate':<25}\t{min(vals):<8}\t{max(vals):<8}\t{meanVisited:<10.2f}\t{self.absoluteMax_visited_cells}")
+#             print(f"{'Coverage ratio':<25}\t{(min(vals) / FREE_CELLS):<10.2f}\t{( max(vals) / FREE_CELLS):<10.2f}\t{(meanVisited / FREE_CELLS):<10.2f}\t{(self.absoluteMax_visited_cells / FREE_CELLS):<10.2f}")
+#             print(f"{'Collisioni':<25}\t{min(colls):<8}\t{max(colls):<8}\t{meanCollisions:<10.2f}\t{self.absoluteMin_collisions}")
+#             print(f"{'Steps':<25}\t{min(steps):<8}\t{max(steps):<8}\t{meanSteps:<10.2f}\t{'-'}")
+#             print(f"{'Collision rate':<25}\t{'':<8}\t{'':<8}\t{collision_rate:<10.4f}\t{'-'}")
+#             print("-" * 80)
+
+
+#             # Log su TensorBoard
+#             self.logger.record("custom/visited_cells_mean", meanVisited)
+#             self.logger.record("custom/collisions_mean", meanCollisions)
+#             self.logger.record("custom/steps_mean", meanSteps)
+#             self.logger.record("custom/collision_rate", collision_rate)
+#             self.logger.record("custom/coverage_ratio", coverage_ratio)
+#             self.logger.record("custom/max_max_steps", max_max_steps)
+
+#             self.episode_visited = self.episode_visited[self.num_envs:]
+#             self.episode_collisions = self.episode_collisions[self.num_envs:]
+#             self.episode_steps = self.episode_steps[self.num_envs:]
+#         return True
+
 class PrintExtraInfosCallback(BaseCallback):
-    def __init__(self, verbose=0, num_envs=NUM_ENVS):
+    def __init__(self, verbose=0, num_envs=NUM_ENVS, print_every=1):
         print("PrintExtraInfosCallback initialized", flush=True)
         super().__init__(verbose)
-        self.absoluteMax_visited_cells = 0
-        self.absoluteMin_collisions = 10000000
         self.num_envs = num_envs
-        self.episode_visited = []
-        self.episode_collisions = []
-        self.episode_steps = []
+        self.print_every = print_every
+        self.episode_visited = deque(maxlen=num_envs*2)
+        self.episode_collisions = deque(maxlen=num_envs*2)
+        self.episode_steps = deque(maxlen=num_envs*2)
+        self.episode_max_steps = deque(maxlen=num_envs*2)
         self.episode_count = 0
-        self.episode_run_len = []
+        self.absoluteMax_visited_cells = 0
+        self.absoluteMin_collisions = float('inf')
 
     def _on_step(self) -> bool:
         infos = self.locals.get("infos", [])
@@ -109,39 +185,39 @@ class PrintExtraInfosCallback(BaseCallback):
 
         for i, done in enumerate(dones):
             if done and "visited_cells" in infos[i]:
-                # print(f"AGGIUNGO visited_cells: {infos[i]['visited_cells']}", flush=True)
                 self.episode_visited.append(infos[i]["visited_cells"])
                 self.episode_collisions.append(infos[i].get("collisions", 0))
-                self.episode_steps.append(infos[i].get("steps", 1))
-        # Quando tutti gli env hanno terminato un episodio, stampa statistiche
-        # print(f"Len episode_visited: {len(self.episode_visited)} / {self.num_envs}", flush=True)
+                self.episode_steps.append(infos[i].get("steps", 0))
+                self.episode_max_steps.append(infos[i].get("max_steps_episode", 0))
+
+        # Solo se abbiamo batch completo
         if len(self.episode_visited) >= self.num_envs:
-            vals = self.episode_visited[:self.num_envs]
-            colls = self.episode_collisions[:self.num_envs]
-            steps = self.episode_steps[:self.num_envs]
+            vals = np.array(self.episode_visited)
+            colls = np.array(self.episode_collisions)
+            steps = np.array(self.episode_steps)
+            max_steps = np.array(self.episode_max_steps)
 
             self.episode_count += self.num_envs
+            self.absoluteMax_visited_cells = max(self.absoluteMax_visited_cells, vals.max())
+            self.absoluteMin_collisions = min(self.absoluteMin_collisions, colls.min())
 
-            if self.absoluteMax_visited_cells < max(vals):
-                self.absoluteMax_visited_cells = max(vals)
-            if self.absoluteMin_collisions > min(colls):
-                self.absoluteMin_collisions = min(colls);
-
-            # Stampa tabellare
-            meanVisited = sum(vals) / len(vals)
-            meanCollisions = sum(colls) / len(colls)
-            meanSteps = sum(steps) / len(steps)
+            meanVisited = vals.mean()
+            meanCollisions = colls.mean()
+            meanSteps = steps.mean()
             collision_rate = meanCollisions / meanSteps if meanSteps > 0 else 0
-            coverage_ratio = meanVisited / FREE_CELLS 
-            print(f"EPISODI: {self.episode_count}")
-            print(f"{'INDICATORE':<25}\t{'MIN':<8}\t{'MAX':<8}\t{'MEDIA':<10}\t{'ASSOLUTO'}")
-            print(f"{'Celle nuove visitate':<25}\t{min(vals):<8}\t{max(vals):<8}\t{meanVisited:<10.2f}\t{self.absoluteMax_visited_cells}")
-            print(f"{'Coverage ratio':<25}\t{(min(vals) / FREE_CELLS):<10.2f}\t{( max(vals) / FREE_CELLS):<10.2f}\t{(meanVisited / FREE_CELLS):<10.2f}\t{(self.absoluteMax_visited_cells / FREE_CELLS):<10.2f}")
-            print(f"{'Collisioni':<25}\t{min(colls):<8}\t{max(colls):<8}\t{meanCollisions:<10.2f}\t{self.absoluteMin_collisions}")
-            print(f"{'Steps':<25}\t{min(steps):<8}\t{max(steps):<8}\t{meanSteps:<10.2f}\t{'-'}")
-            print(f"{'Collision rate':<25}\t{'':<8}\t{'':<8}\t{collision_rate:<10.4f}\t{'-'}")
-            print("-" * 80)
+            coverage_ratio = meanVisited / FREE_CELLS
+            max_max_steps = max_steps.max() if len(max_steps) > 0 else 0
 
+            # Stampa solo ogni N batch
+            if self.episode_count % (self.print_every * self.num_envs) == 0:
+                print(f"EPISODI: {self.episode_count}")
+                print(f"{'INDICATORE':<25}\t{'MIN':<8}\t{'MAX':<8}\t{'MEDIA':<10}\t{'ASSOLUTO'}")
+                print(f"{'Celle nuove visitate':<25}\t{vals.min():<8}\t{vals.max():<8}\t{meanVisited:<10.2f}\t{self.absoluteMax_visited_cells}")
+                print(f"{'Coverage ratio':<25}\t{(vals.min() / FREE_CELLS):<10.2f}\t{(vals.max() / FREE_CELLS):<10.2f}\t{coverage_ratio:<10.2f}\t{(self.absoluteMax_visited_cells / FREE_CELLS):<10.2f}")
+                print(f"{'Collisioni':<25}\t{colls.min():<8}\t{colls.max():<8}\t{meanCollisions:<10.2f}\t{self.absoluteMin_collisions}")
+                print(f"{'Steps':<25}\t{steps.min():<8}\t{steps.max():<8}\t{meanSteps:<10.2f}\t{'-'}")
+                print(f"{'Collision rate':<25}\t{'':<8}\t{'':<8}\t{collision_rate:<10.4f}\t{'-'}")
+                print("-" * 80)
 
             # Log su TensorBoard
             self.logger.record("custom/visited_cells_mean", meanVisited)
@@ -149,10 +225,13 @@ class PrintExtraInfosCallback(BaseCallback):
             self.logger.record("custom/steps_mean", meanSteps)
             self.logger.record("custom/collision_rate", collision_rate)
             self.logger.record("custom/coverage_ratio", coverage_ratio)
+            self.logger.record("custom/max_max_steps", max_max_steps)
 
-            self.episode_visited = self.episode_visited[self.num_envs:]
-            self.episode_collisions = self.episode_collisions[self.num_envs:]
-            self.episode_steps = self.episode_steps[self.num_envs:]
+            # Svuota le code per il prossimo batch
+            self.episode_visited.clear()
+            self.episode_collisions.clear()
+            self.episode_steps.clear()
+            self.episode_max_steps.clear()
         return True
 
 class DynamicParamsCallback(BaseCallback):
@@ -167,7 +246,7 @@ class DynamicParamsCallback(BaseCallback):
 
     def __init__(self,
                  initial_factor: float = 10.0,
-                 final_factor: float = 1.0,
+                 final_factor: float = 1.5,
                  verbose: int = 0):
         super().__init__(verbose)
         self.initial_factor = initial_factor
@@ -321,6 +400,7 @@ class GraphBasedEnv(Env):
             "collisions": self.episode_collisions,
             "visited_cells": self.visited,
             "steps": self.steps,
+            "max_steps_episode": self.max_steps_episode,
         }
 
         return self._obs(), float(reward), terminated, truncated, info
@@ -352,8 +432,8 @@ def dynamicLr(progress_remaining):
     
     progress_done = 1.0 - progress_remaining
 
-    # if progress_done <= 0.20:
-    #     return 4e-4
+    if progress_done <= 0.20:
+        return 4e-4
     if progress_done <= 0.40:
         return 3e-4
     elif progress_done <= 0.70:
@@ -402,7 +482,7 @@ def train(total_steps: int = TOTAL_TIMESTEPS, model_name_load: str = None, model
     checkpoint_callback = CheckpointCallback(
         save_freq=10_000_000 // NUM_ENVS,
         save_path=DEFAULT_MODEL_PATH,
-        name_prefix="ppo_checkpoint"
+        name_prefix=CHECKPOINT_PREFIX
     )
 
     vecnorm_callback = VecNormalizeCheckpointCallback(env, 10_000_000 // NUM_ENVS, DEFAULT_MODEL_PATH)
@@ -563,9 +643,9 @@ if __name__ == '__main__':
     # fix global seed
     set_random_seed(0)
     
-    train(total_steps=100_000_000, model_name_save="ppo_trained_100M")
+    #train(total_steps=100_000_000, model_name_save="ppo_trained_100M")
     # inference(model_name_load="ppo_trained_100M")
-    #inference_video(model_name_load="ppo_trained_100M", video_path="inference_video_100M.avi", fps=20)
+    inference_video(model_name_load="ppo_trained_100M", video_path="inference_video_100M.avi", fps=20)
     # visualize_path()
 
     pass
