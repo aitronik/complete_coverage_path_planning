@@ -37,7 +37,7 @@ NET_ARCH = [256, 128]
 # === Reward Constants ===
 R_DONE              =   100.0
 R_NEW               =   1.0
-R_STEP              =  -0.02
+R_STEP              =  -0.05
 R_ACTION_EQUAL      =   0.0
 R_ACTION_NOTEQUAL   =  -0.05
 R_VISITED           =  -0.2
@@ -93,77 +93,6 @@ class VecNormalizeCheckpointCallback(BaseCallback):
             path = os.path.join(self.save_path, f"{self.name_prefix}_{self.num_timesteps}_vecnormalize.pkl")
             self.env.save(path)
         return True
-
-# class PrintExtraInfosCallback(BaseCallback):
-#     def __init__(self, verbose=0, num_envs=NUM_ENVS):
-#         print("PrintExtraInfosCallback initialized", flush=True)
-#         super().__init__(verbose)
-#         self.absoluteMax_visited_cells = 0
-#         self.absoluteMin_collisions = 10000000
-#         self.num_envs = num_envs
-#         self.episode_visited = []
-#         self.episode_collisions = []
-#         self.episode_steps = []
-#         self.episode_count = 0
-#         self.episode_run_len = []
-#         self.episode_max_steps = []
-
-#     def _on_step(self) -> bool:
-#         infos = self.locals.get("infos", [])
-#         dones = self.locals.get("dones", [])
-
-#         for i, done in enumerate(dones):
-#             if done and "visited_cells" in infos[i]:
-#                 # print(f"AGGIUNGO visited_cells: {infos[i]['visited_cells']}", flush=True)
-#                 self.episode_visited.append(infos[i]["visited_cells"])
-#                 self.episode_collisions.append(infos[i].get("collisions", 0))
-#                 self.episode_steps.append(infos[i].get("steps", 0))
-#                 self.episode_max_steps.append(infos[i].get("max_steps_episode", 0))
-#         # Quando tutti gli env hanno terminato un episodio, stampa statistiche
-#         # print(f"Len episode_visited: {len(self.episode_visited)} / {self.num_envs}", flush=True)
-#         if len(self.episode_visited) >= self.num_envs:
-#             vals = self.episode_visited[:self.num_envs]
-#             colls = self.episode_collisions[:self.num_envs]
-#             steps = self.episode_steps[:self.num_envs]
-#             max_steps = self.episode_max_steps[:self.num_envs]
-
-#             max_max_steps = max(max_steps) if max_steps else 0
-
-#             self.episode_count += self.num_envs
-
-#             if self.absoluteMax_visited_cells < max(vals):
-#                 self.absoluteMax_visited_cells = max(vals)
-#             if self.absoluteMin_collisions > min(colls):
-#                 self.absoluteMin_collisions = min(colls)
-
-#             # Stampa tabellare
-#             meanVisited = sum(vals) / len(vals)
-#             meanCollisions = sum(colls) / len(colls)
-#             meanSteps = sum(steps) / len(steps)
-#             collision_rate = meanCollisions / meanSteps if meanSteps > 0 else 0
-#             coverage_ratio = meanVisited / FREE_CELLS 
-#             print(f"EPISODI: {self.episode_count}")
-#             print(f"{'INDICATORE':<25}\t{'MIN':<8}\t{'MAX':<8}\t{'MEDIA':<10}\t{'ASSOLUTO'}")
-#             print(f"{'Celle nuove visitate':<25}\t{min(vals):<8}\t{max(vals):<8}\t{meanVisited:<10.2f}\t{self.absoluteMax_visited_cells}")
-#             print(f"{'Coverage ratio':<25}\t{(min(vals) / FREE_CELLS):<10.2f}\t{( max(vals) / FREE_CELLS):<10.2f}\t{(meanVisited / FREE_CELLS):<10.2f}\t{(self.absoluteMax_visited_cells / FREE_CELLS):<10.2f}")
-#             print(f"{'Collisioni':<25}\t{min(colls):<8}\t{max(colls):<8}\t{meanCollisions:<10.2f}\t{self.absoluteMin_collisions}")
-#             print(f"{'Steps':<25}\t{min(steps):<8}\t{max(steps):<8}\t{meanSteps:<10.2f}\t{'-'}")
-#             print(f"{'Collision rate':<25}\t{'':<8}\t{'':<8}\t{collision_rate:<10.4f}\t{'-'}")
-#             print("-" * 80)
-
-
-#             # Log su TensorBoard
-#             self.logger.record("custom/visited_cells_mean", meanVisited)
-#             self.logger.record("custom/collisions_mean", meanCollisions)
-#             self.logger.record("custom/steps_mean", meanSteps)
-#             self.logger.record("custom/collision_rate", collision_rate)
-#             self.logger.record("custom/coverage_ratio", coverage_ratio)
-#             self.logger.record("custom/max_max_steps", max_max_steps)
-
-#             self.episode_visited = self.episode_visited[self.num_envs:]
-#             self.episode_collisions = self.episode_collisions[self.num_envs:]
-#             self.episode_steps = self.episode_steps[self.num_envs:]
-#         return True
 
 class PrintExtraInfosCallback(BaseCallback):
     def __init__(self, verbose=0, num_envs=NUM_ENVS, print_every=1):
