@@ -37,10 +37,10 @@ NET_ARCH = [256, 128]
 # === Reward Constants ===
 R_DONE              =   100.0
 R_NEW               =   1.0
-R_STEP              =  -0.05
+R_STEP              =  -0.02
 R_ACTION_EQUAL      =   0.0
 R_ACTION_NOTEQUAL   =  -0.05
-R_VISITED           =  -0.2
+R_VISITED           =  -1.0
 R_COLLIDE           =  -3.0
 R_TIMEOUT           =  -5.0 
 R_MOVE              =   0.02 
