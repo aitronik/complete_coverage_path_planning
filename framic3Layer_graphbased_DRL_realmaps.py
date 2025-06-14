@@ -37,10 +37,10 @@ NET_ARCH = [256, 128]
 # === Reward Constants ===
 R_DONE              =   100.0
 R_NEW               =   1.0
-R_STEP              =  -0.02
+R_STEP              =  -0.01
 R_ACTION_EQUAL      =   0.0
 R_ACTION_NOTEQUAL   =  -0.05
-R_VISITED           =  -1.0
+R_VISITED           =  -0.02
 R_COLLIDE           =  -3.0
 R_TIMEOUT           =  -5.0 
 R_MOVE              =   0.02 
@@ -192,9 +192,9 @@ class DynamicParamsCallback(BaseCallback):
         
         # interpolazione lineare
         new_factor = self.final_factor + (self.initial_factor - self.final_factor) * prog
-        
+        new_r_step = R_STEP + (R_STEP - (-1.0)) * (prog - 1.0)  # R_STEP lineare da R_STEP a 0
         self.training_env.env_method("set_max_steps_factor", new_factor, indices=None)
-
+        self.training_env.env_method("set_r_step", new_r_step, indices=None)
         return True
 
 
@@ -235,11 +235,16 @@ class GraphBasedEnv(Env):
         self.base_map = BASE_MAP.copy().astype(np.float32)
         self.previous_action = -1
         self.max_steps_factor = 3
+        self.r_step = R_STEP
 
     def set_max_steps_factor(self, value: float):
         """Setter richiamabile via env_method."""
         self.max_steps_factor   = value
         self.max_steps_episode = int(self.max_steps_factor * FREE_CELLS)
+
+    def set_r_step(self, value: float):
+        """Setter richiamabile via env_method."""
+        self.r_step = value
 
     def reset(self, *, seed=None, options=None) -> Tuple[np.ndarray, Dict]:
         super().reset(seed=seed)
@@ -263,7 +268,7 @@ class GraphBasedEnv(Env):
  
         reward = 0
 
-        reward += R_STEP
+        reward += self.r_step #R_STEP
 
         terminated = False
         truncated = False
@@ -329,7 +334,7 @@ class GraphBasedEnv(Env):
             "collisions": self.episode_collisions,
             "visited_cells": self.visited,
             "steps": self.steps,
-            "max_steps_episode": self.max_steps_episode,
+            "max_steps_episode": self.r_step#self.max_steps_episode,
         }
 
         return self._obs(), float(reward), terminated, truncated, info
