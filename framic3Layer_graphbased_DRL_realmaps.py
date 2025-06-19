@@ -36,8 +36,8 @@ NET_ARCH = [256, 128]
 
 # === Reward Constants ===
 R_DONE              =   100.0
-R_NEW               =   1.0
-R_STEP              =  -0.02
+R_NEW               =   2.0
+R_STEP              =  -0.1
 R_ACTION_EQUAL      =   0.0
 R_ACTION_NOTEQUAL   =  -0.05
 R_VISITED           =  -1.0
@@ -49,9 +49,7 @@ RUNLEN_CAP          =   100
 
 CHECKPOINT_PREFIX = "ppo_checkpoint"
          
-# - Ridurre R_STEP a -0.05
-# - Ridurre R_VISITED a -1.0
-# - Ridurre col passare delle iterazioni R_STEP da -0.01 a -1.0
+# Inventare un  reward che premi il fatto di lavorare adiacentemente a celle visitate o bordi.
 
 # === VALUE
 CELL_FREE =     0.0
@@ -164,39 +162,25 @@ class PrintExtraInfosCallback(BaseCallback):
         return True
 
 class DynamicParamsCallback(BaseCallback):
-    """
-    Riduce in modo lineare `max_steps_factor` da `initial_factor` a
-    `final_factor` durante l'addestramento, utilizzando la variabile
-    `model._current_progress_remaining` di Stable-Baselines3.
-
-    Compatibile sia con DummyVecEnv che con SubprocVecEnv:
-    si appoggia a `VecEnv.set_attr`, quindi non accede a `envs`.
-    """
-
-    def __init__(self,
-                 initial_factor: float = 10.0,
-                 final_factor: float = 1.5,
-                 verbose: int = 0):
+    def __init__(self, verbose=0):
         super().__init__(verbose)
-        self.initial_factor = initial_factor
-        self.final_factor   = final_factor
+        self.maxStepFactorSchedule = [
+            (0.75, 10.0),
+            (0.5, 5.0),
+            (0.25, 2.5),
+            (0.0, 1.5),
+        ]
 
-    # ---------- callback life-cycle ----------
     def _on_training_start(self) -> None:
-        # imposta il valore iniziale su TUTTI i sotto-env
-        self.training_env.set_attr("max_steps_factor", self.initial_factor)
+        self.training_env.set_attr("max_steps_factor", 10.0)
 
     def _on_step(self) -> bool:
-        # progress_remaining ∈ [1.0 … 0.0]
         prog = getattr(self.model, "_current_progress_remaining", 1.0)
-        
-        # interpolazione lineare
-        new_factor = self.final_factor + (self.initial_factor - self.final_factor) * prog
-        
-        self.training_env.env_method("set_max_steps_factor", new_factor, indices=None)
-
+        for threshold, value in self.maxStepFactorSchedule:
+            if prog >= threshold:
+                self.training_env.env_method("set_max_steps_factor", value, indices=None)
+                break
         return True
-
 
 
 
@@ -205,12 +189,16 @@ class CustomCNN(BaseFeaturesExtractor):
     def __init__(self, observation_space: spaces.Box, features_dim: int = 128):
         super().__init__(observation_space, features_dim)
         n_ch = observation_space.shape[0]
+        # self.cnn = nn.Sequential(
+        #     nn.Conv2d(n_ch, 32, kernel_size=4, stride=2, padding=0), nn.ReLU(),   # 36x36 -> 18x18
+        #     nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0), nn.ReLU(),     # 18x18 -> 9x9
+        #     nn.Flatten()
+        # )
         self.cnn = nn.Sequential(
-            # nn.Conv2d(n_ch, 32, kernel_size=5, stride=2, padding=2), nn.ReLU(),   # 36x36 -> 18x18
-            # nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1), nn.ReLU(),     # 18x18 -> 9x9
-            # nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1), nn.ReLU(),    # 9x9 -> 5x5
-            nn.Conv2d(n_ch, 32, kernel_size=4, stride=2, padding=0), nn.ReLU(),   # 36x36 -> 18x18
-            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0), nn.ReLU(),     # 18x18 -> 9x9
+            nn.Conv2d(n_ch, 32, kernel_size=4, stride=2, padding=0), nn.ReLU(),   # 36x36 -> 17x17
+            nn.BatchNorm2d(32),
+            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0), nn.ReLU(),     # 17x17 -> 15x15
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=0), nn.ReLU(),    # 15x15 -> 13x13
             nn.Flatten()
         )
         with torch.no_grad():
