@@ -25,8 +25,8 @@ TOTAL_TIMESTEPS = 1_000_000
 NUM_ENVS = 32
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-SHAPING_K = 0.5
-GAMMA = 0.99
+SHAPING_K = 1.0
+GAMMA = 0.985 #0.99
 
 DEFAULT_MODEL_NAME = "ppo_trained"
 DEFAULT_MODEL_PATH = "Training/model/"
@@ -36,23 +36,19 @@ NET_ARCH = [256, 128]
 
 # === Reward Constants ===
 R_DONE              =   100.0
-R_NEW               =   1.0
-R_STEP              =  -0.02
+R_NEW               =   2.0
+R_STEP              =  -0.05
 R_ACTION_EQUAL      =   0.0
-R_ACTION_NOTEQUAL   =  -0.05
+R_ACTION_NOTEQUAL   =  -0.1
 R_VISITED           =  -1.0
 R_COLLIDE           =  -3.0
 R_TIMEOUT           =  -5.0 
-R_MOVE              =   0.02 
-RUNLEN_BONUS_K      =   0.01       
+R_MOVE              =   0.0 
+RUNLEN_BONUS_K      =   0.02       
 RUNLEN_CAP          =   100 
 
 CHECKPOINT_PREFIX = "ppo_checkpoint"
-         
-# - Ridurre R_STEP a -0.05
-# - Ridurre R_VISITED a -1.0
-# - Ridurre col passare delle iterazioni R_STEP da -0.01 a -1.0
-
+        
 # === VALUE
 CELL_FREE =     0.0
 CELL_VISITED =  1.0
@@ -221,6 +217,15 @@ class CustomCNN(BaseFeaturesExtractor):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.linear(self.cnn(x))
 
+class LinearSchedule:
+    def __init__(self, initial_value, final_value=0.0):
+        self.initial_value = initial_value
+        self.final_value = final_value
+
+    def __call__(self, progress_remaining):
+        return self.final_value + (self.initial_value - self.final_value) * progress_remaining
+
+
 # === Environment ===
 class GraphBasedEnv(Env):
     metadata = {"render_modes": ["human"]}
@@ -230,11 +235,12 @@ class GraphBasedEnv(Env):
     def __init__(self):
         super().__init__()
         # observation: 3 channel image (walls, agent, visited)
-        self.observation_space = spaces.Box(0, 1.0, shape=(3, h, w), dtype=np.float32)
+        self.observation_space = spaces.Box(0, 1.0, shape=(4, h, w), dtype=np.float32)
         self.action_space = spaces.Discrete(4)
         self.base_map = BASE_MAP.copy().astype(np.float32)
         self.previous_action = -1
         self.max_steps_factor = 3
+        self.idle_limit = FREE_CELLS // 5
 
     def set_max_steps_factor(self, value: float):
         """Setter richiamabile via env_method."""
@@ -254,6 +260,7 @@ class GraphBasedEnv(Env):
         self.steps = 0
         self.prev_cov = self.visited / FREE_CELLS
         self.run_len = 0
+        self.idle_counter = 0
         self.max_steps_episode = int(self.max_steps_factor * FREE_CELLS)
         return self._obs(), {}
 
@@ -316,6 +323,15 @@ class GraphBasedEnv(Env):
         self.steps += 1
         self.previous_action = action
 
+        if reward >= R_NEW:              # hai guadagnato +2
+            self.idle_counter = 0
+        else:
+            self.idle_counter += 1
+
+        if self.idle_counter >= self.idle_limit:
+            truncated = True
+            reward += R_TIMEOUT          #  –5 (già definito)
+
         if(self.visited >= FREE_CELLS):
             terminated = True
             reward += R_DONE
@@ -336,7 +352,7 @@ class GraphBasedEnv(Env):
 
     def _obs(self):
         # 3 canali: [0]=muri, [1]=agente, [2]=visitate
-        obs = np.zeros((3, h, w), dtype=np.float32)
+        obs = np.zeros((4, h, w), dtype=np.float32)
         # Canale 0: muri
         obs[0] = (self.base_map == CELL_WALL).astype(np.float32)
         # Canale 1: agente
@@ -345,6 +361,8 @@ class GraphBasedEnv(Env):
         obs[1, y, x] = 1.0
         # Canale 2: visitate
         obs[2] = (self.state == CELL_VISITED).astype(np.float32)
+        if self.previous_action >= 0:
+            obs[3, :, :] = self.previous_action / 3.0
         return obs
 
     def render(self, mode="human") -> None:
@@ -370,6 +388,13 @@ def dynamicLr(progress_remaining):
     else:
         return 1e-4
 
+def linear_schedule(start: float, end: float = 0.0):
+
+    def _fn(progress_remaining: float) -> float:
+        return end + (start - end) * progress_remaining
+    
+    return _fn
+
 def train(total_steps: int = TOTAL_TIMESTEPS, model_name_load: str = None, model_name_save: str = DEFAULT_MODEL_NAME):
     # vectorized + normalize
     # NUM_ENVS is set to 8 to balance parallelism and resource usage, typically based on the number of CPU cores available.
@@ -387,6 +412,8 @@ def train(total_steps: int = TOTAL_TIMESTEPS, model_name_load: str = None, model
             reset_timesteps = False
     else:
         print("No model to load, creating a new one.")
+        clip_init, clip_final = 0.30, 0.15
+        ent_init              = 0.003
         model = PPO(
             policy="CnnPolicy",
             env=env,
@@ -394,7 +421,7 @@ def train(total_steps: int = TOTAL_TIMESTEPS, model_name_load: str = None, model
             n_steps=2048, 
             batch_size= 4096,
             gamma=GAMMA,
-            gae_lambda=0.95,
+            gae_lambda=0.90,
             clip_range=0.2,
             ent_coef=0.003,
             max_grad_norm=0.5,
