@@ -39,13 +39,15 @@ R_DONE              =   100.0
 R_NEW               =   2.0
 R_STEP              =  -0.05
 R_ACTION_EQUAL      =   0.0
-R_ACTION_NOTEQUAL   =  -0.1
+R_ACTION_NOTEQUAL   =  -0.15
 R_VISITED           =  -1.0
 R_COLLIDE           =  -3.0
 R_TIMEOUT           =  -5.0 
 R_MOVE              =   0.0 
-RUNLEN_BONUS_K      =   0.02       
+RUNLEN_BONUS_K      =   0.015       
 RUNLEN_CAP          =   100 
+
+DIST_SHAPING_K     = 0.10   # peso del bonus distanza
 
 CHECKPOINT_PREFIX = "ppo_checkpoint"
         
@@ -225,6 +227,21 @@ class LinearSchedule:
     def __call__(self, progress_remaining):
         return self.final_value + (self.initial_value - self.final_value) * progress_remaining
 
+def nearest_frontier_distance(y, x, state):
+    """
+    BFS fino alla prima cella 'CELL_FREE' ancora non visitata.
+    Ritorna la distanza di Manhattan; se la mappa è già completata → 0.
+    """
+    q, vis = [(y, x, 0)], {(y, x)}
+    while q:
+        cy, cx, d = q.pop(0)
+        if np.isclose(state[cy, cx], CELL_FREE):
+            return d
+        for dy, dx in [(-1,0), (1,0), (0,-1), (0,1)]:
+            ny, nx = cy+dy, cx+dx
+            if 0 <= ny < h and 0 <= nx < w and (ny, nx) not in vis:
+                vis.add((ny, nx)); q.append((ny, nx, d+1))
+    return 0
 
 # === Environment ===
 class GraphBasedEnv(Env):
@@ -240,7 +257,7 @@ class GraphBasedEnv(Env):
         self.base_map = BASE_MAP.copy().astype(np.float32)
         self.previous_action = -1
         self.max_steps_factor = 3
-        self.idle_limit = FREE_CELLS // 5
+        self.idle_limit = FREE_CELLS // 10
 
     def set_max_steps_factor(self, value: float):
         """Setter richiamabile via env_method."""
@@ -253,6 +270,7 @@ class GraphBasedEnv(Env):
         idx = self.np_random.choice(len(_coords))
         y, x = tuple(_coords[idx])
         self.pos = (y, x)
+        self.prev_pos = (y, x)
         self.state[y, x] = CELL_NOW
         self.visited = 1
         self.episode_collisions = 0
@@ -262,9 +280,11 @@ class GraphBasedEnv(Env):
         self.run_len = 0
         self.idle_counter = 0
         self.max_steps_episode = int(self.max_steps_factor * FREE_CELLS)
+        self.visit_time = np.full((h, w), -1, dtype=np.int32)
         return self._obs(), {}
 
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, bool, Dict]:
+        self.prev_pos = self.pos
         y, x = self.pos
         dy, dx = [(-1, 0), (0, 1), (1, 0), (0, -1)][action]
  
@@ -291,16 +311,28 @@ class GraphBasedEnv(Env):
 
         else:
 
+            # --- shaping distanza frontiera (potential-based) ---
+            prev_dist = nearest_frontier_distance(*self.prev_pos, self.state)
+            new_dist  = nearest_frontier_distance(*self.pos,      self.state)
+            dense_bonus = -DIST_SHAPING_K * (new_dist - GAMMA * prev_dist)
+            reward += dense_bonus
+            # ------------------------------------------------------
             
             reward += R_MOVE
 
             if np.isclose(self.state[ny, nx], CELL_FREE):
                 reward += R_NEW
                 self.visited += 1
+                self.visit_time[ny, nx] = self.steps
             elif np.isclose(self.state[ny, nx], CELL_VISITED):
-                reward += R_VISITED
+                #reward += R_VISITED
+                age = self.steps - self.visit_time[ny, nx]
+                late_penalty = R_VISITED * (1 + age / FREE_CELLS)   # cresce con l'età
+                reward += late_penalty
 
             self.state[y, x] = CELL_VISITED
+
+            self.visit_time[y, x] = 0     # passo 0
 
             if self.previous_action == action:
                 self.run_len += 1
@@ -362,6 +394,8 @@ class GraphBasedEnv(Env):
         # Canale 2: visitate
         obs[2] = (self.state == CELL_VISITED).astype(np.float32)
         if self.previous_action >= 0:
+            # x, y = self.prev_pos
+            # obs[3, y, x] = self.previous_action / 3.0
             obs[3, :, :] = self.previous_action / 3.0
         return obs
 
@@ -390,10 +424,11 @@ def dynamicLr(progress_remaining):
 
 def linear_schedule(start: float, end: float = 0.0):
 
-    def _fn(progress_remaining: float) -> float:
+    def schedule(progress_remaining: float) -> float:
+        # progress_remaining parte da 1 e scende a 0
         return end + (start - end) * progress_remaining
-    
-    return _fn
+
+    return schedule
 
 def train(total_steps: int = TOTAL_TIMESTEPS, model_name_load: str = None, model_name_save: str = DEFAULT_MODEL_NAME):
     # vectorized + normalize
@@ -417,12 +452,12 @@ def train(total_steps: int = TOTAL_TIMESTEPS, model_name_load: str = None, model
         model = PPO(
             policy="CnnPolicy",
             env=env,
-            learning_rate = dynamicLr, #3e-4,
+            learning_rate = linear_schedule(3e-4, 3e-5), #dynamicLr, #3e-4,
             n_steps=2048, 
             batch_size= 4096,
             gamma=GAMMA,
             gae_lambda=0.90,
-            clip_range=0.2,
+            clip_range=linear_schedule(0.30, 0.15),#0.2,
             ent_coef=0.003,
             max_grad_norm=0.5,
             policy_kwargs={
@@ -599,7 +634,7 @@ if __name__ == '__main__':
     # fix global seed
     set_random_seed(0)
     
-    #train(total_steps=100_000_000, model_name_save="ppo_trained_100M")
+    # train(total_steps=100_000_000, model_name_save="ppo_trained_100M")
     # inference(model_name_load="ppo_trained_100M")
     inference_video(model_name_load="ppo_trained_100M", video_path="inference_video_100M.avi", fps=20)
     # visualize_path()
