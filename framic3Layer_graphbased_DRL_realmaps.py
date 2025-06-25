@@ -257,7 +257,7 @@ class GraphBasedEnv(Env):
         self.base_map = BASE_MAP.copy().astype(np.float32)
         self.previous_action = -1
         self.max_steps_factor = 3
-        self.idle_limit = FREE_CELLS // 10
+        self.idle_limit = FREE_CELLS# // 10
 
     def set_max_steps_factor(self, value: float):
         """Setter richiamabile via env_method."""
@@ -634,9 +634,9 @@ if __name__ == '__main__':
     # fix global seed
     set_random_seed(0)
     
-    # train(total_steps=100_000_000, model_name_save="ppo_trained_100M")
+    train(total_steps=100_000_000, model_name_save="ppo_trained_100M")
     # inference(model_name_load="ppo_trained_100M")
-    inference_video(model_name_load="ppo_trained_100M", video_path="inference_video_100M.avi", fps=20)
+    # inference_video(model_name_load="ppo_trained_100M", video_path="inference_video_100M.avi", fps=20)
     # visualize_path()
 
     pass
